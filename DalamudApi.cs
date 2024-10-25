@@ -3,27 +3,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Dalamud.Data;
 using Dalamud.Game;
-using Dalamud.Game.ClientState;
-using Dalamud.Game.ClientState.Buddy;
-using Dalamud.Game.ClientState.Conditions;
-using Dalamud.Game.ClientState.Fates;
-using Dalamud.Game.ClientState.JobGauge;
-using Dalamud.Game.ClientState.Keys;
 using Dalamud.Game.ClientState.Objects;
-using Dalamud.Game.ClientState.Party;
 using Dalamud.Game.Command;
-using Dalamud.Game.Gui;
-using Dalamud.Game.Gui.FlyText;
-using Dalamud.Game.Gui.PartyFinder;
-using Dalamud.Game.Gui.Toast;
-using Dalamud.Game.Libc;
-using Dalamud.Game.Network;
 using Dalamud.IoC;
-using Dalamud.Logging;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using static Dalamud.Game.Command.IReadOnlyCommandInfo;
 
 // ReSharper disable CheckNamespace
 // ReSharper disable UnusedAutoPropertyAccessor.Local
@@ -32,9 +18,11 @@ namespace Dalamud
 {
     public class DalamudApi
     {
+        public static IPluginLog Log { get; private set; } = null!;
+
         [PluginService]
         //[RequiredVersion("1.0")]
-        public static DalamudPluginInterface PluginInterface { get; private set; }
+        public static IDalamudPluginInterface PluginInterface { get; private set; }
 
         [PluginService]
         //[RequiredVersion("1.0")]
@@ -95,10 +83,6 @@ namespace Dalamud
 
         [PluginService]
         //[RequiredVersion("1.0")]
-        public static ILibcFunction LibcFunction { get; private set; }
-
-        [PluginService]
-        //[RequiredVersion("1.0")]
         public static IObjectTable ObjectTable { get; private set; }
 
         [PluginService]
@@ -127,11 +111,10 @@ namespace Dalamud
 
         public DalamudApi(IDalamudPlugin plugin) => pluginCommandManager ??= new(plugin);
 
-        public DalamudApi(IDalamudPlugin plugin, DalamudPluginInterface pluginInterface)
+        public DalamudApi(IDalamudPlugin plugin, IDalamudPluginInterface pluginInterface)
         {
             if (!pluginInterface.Inject(this))
             {
-                PluginLog.LogError("Failed loading DalamudApi!");
                 return;
             }
 
@@ -150,7 +133,7 @@ namespace Dalamud
             throw new InvalidOperationException();
         }
 
-        public static void Initialize(IDalamudPlugin plugin, DalamudPluginInterface pluginInterface) => _ = new DalamudApi(plugin, pluginInterface);
+        public static void Initialize(IDalamudPlugin plugin, IDalamudPluginInterface pluginInterface) => _ = new DalamudApi(plugin, pluginInterface);
 
         public static void Dispose() => pluginCommandManager?.Dispose();
     }
@@ -160,17 +143,6 @@ namespace Dalamud
     {
         private readonly T plugin;
         private readonly (string, CommandInfo)[] pluginCommands;
-
-        public PluginCommandManager(T p)
-        {
-            plugin = p;
-            pluginCommands = plugin.GetType().GetMethods(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
-                .Where(method => method.GetCustomAttribute<CommandAttribute>() != null)
-                .SelectMany(GetCommandInfoTuple)
-                .ToArray();
-
-            AddCommandHandlers();
-        }
 
         private void AddCommandHandlers()
         {
@@ -184,14 +156,18 @@ namespace Dalamud
                 DalamudApi.CommandManager.RemoveHandler(command);
         }
 
-        private IEnumerable<(string, CommandInfo)> GetCommandInfoTuple(MethodInfo method)
+        private IEnumerable<(string, CommandInfo)> GetCommandInfoTuple(MethodInfo method, HandlerDelegate handlerDelegate)
         {
-            var handlerDelegate = (CommandInfo.HandlerDelegate)Delegate.CreateDelegate(typeof(CommandInfo.HandlerDelegate), plugin, method);
+            if (handlerDelegate == null || method == null)
+                yield break; // or throw a meaningful exception if handlerDelegate must be provided.
 
-            var command = handlerDelegate.Method.GetCustomAttribute<CommandAttribute>();
-            var aliases = handlerDelegate.Method.GetCustomAttribute<AliasesAttribute>();
-            var helpMessage = handlerDelegate.Method.GetCustomAttribute<HelpMessageAttribute>();
-            var doNotShowInHelp = handlerDelegate.Method.GetCustomAttribute<DoNotShowInHelpAttribute>();
+            var command = method.GetCustomAttribute<CommandAttribute>();
+            if (command == null)
+                yield break; // If no CommandAttribute, skip.
+
+            var aliases = method.GetCustomAttribute<AliasesAttribute>();
+            var helpMessage = method.GetCustomAttribute<HelpMessageAttribute>();
+            var doNotShowInHelp = method.GetCustomAttribute<DoNotShowInHelpAttribute>();
 
             var commandInfo = new CommandInfo(handlerDelegate)
             {
@@ -199,12 +175,26 @@ namespace Dalamud
                 ShowInHelp = doNotShowInHelp == null,
             };
 
-            // Create list of tuples that will be filled with one tuple per alias, in addition to the base command tuple.
-            var commandInfoTuples = new List<(string, CommandInfo)> { (command?.Command, commandInfo) };
+            // Populate the tuple list
+            var commandInfoTuples = new List<(string, CommandInfo)> { (command.Command, commandInfo) };
             if (aliases != null)
                 commandInfoTuples.AddRange(aliases.Aliases.Select(alias => (alias, commandInfo)));
 
-            return commandInfoTuples;
+            foreach (var tuple in commandInfoTuples)
+                yield return tuple;
+        }
+
+
+        public PluginCommandManager(T p)
+        {
+            plugin = p;
+            pluginCommands = plugin.GetType()
+    .GetMethods(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
+    .Where(method => method.GetCustomAttribute<CommandAttribute>() != null)
+    .SelectMany(method => GetCommandInfoTuple(method, handlerDelegate: null)) // or supply a valid handler
+    .ToArray();
+
+            AddCommandHandlers();
         }
 
         public void Dispose()
