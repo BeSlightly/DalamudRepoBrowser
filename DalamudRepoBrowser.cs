@@ -8,9 +8,8 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Dalamud.IoC;
+using Dalamud.Logging;
 using Dalamud.Plugin;
-using Dalamud.Plugin.Services;
 using Newtonsoft.Json.Linq;
 
 namespace DalamudRepoBrowser
@@ -94,8 +93,6 @@ namespace DalamudRepoBrowser
         public string Name => "DalamudRepoBrowser";
         public static DalamudRepoBrowser Plugin { get; private set; }
         public static Configuration Config { get; private set; }
-        [PluginService] public static IPluginLog LogError { get; private set; } = null!;
-        [PluginService] public static IPluginLog LogInformation { get; private set; } = null!;
 
         public static int currentAPILevel;
         private static PropertyInfo dalamudRepoSettingsProperty;
@@ -105,7 +102,6 @@ namespace DalamudRepoBrowser
             get => dalamudRepoSettings ??= (IEnumerable)dalamudRepoSettingsProperty?.GetValue(dalamudConfig);
             set => dalamudRepoSettings = value;
         }
-        public static object PluginLog { get; private set; }
 
         public static readonly string repoMaster = @"https://api.xivplugins.com/v1/dalamud/repos";
         public static List<RepoInfo> repoList = new();
@@ -130,6 +126,7 @@ namespace DalamudRepoBrowser
         {
             Plugin = this;
             DalamudApi.Initialize(this, pluginInterface);
+
             httpClient.DefaultRequestHeaders.Add("Application-Name", "DalamudRepoBrowser");
             httpClient.DefaultRequestHeaders.Add("Application-Version",
                 Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "1.0.0.0");
@@ -145,8 +142,9 @@ namespace DalamudRepoBrowser
                 DalamudApi.PluginInterface.UiBuilder.Draw += PluginUI.Draw;
                 prevSeenRepos = Config.SeenRepos.ToHashSet();
             }
-            catch (Exception e) { }
+            catch (Exception e) { DalamudApi.PluginLog.Error(e, "Failed to load."); }
         }
+
 
         private static object GetService(string type)
         {
@@ -166,7 +164,7 @@ namespace DalamudRepoBrowser
             dalamudPluginManager = GetService("Dalamud.Plugin.Internal.PluginManager");
             dalamudConfig = GetService("Dalamud.Configuration.Internal.DalamudConfiguration");
 
-			currentAPILevel = typeof(IDalamudPluginInterface).Assembly.GetName( ).Version!.Major;
+			currentAPILevel = typeof( IDalamudPluginInterface ).Assembly.GetName( ).Version!.Major;
 
 			dalamudRepoSettingsProperty = dalamudConfig?.GetType()
                 .GetProperty("ThirdRepoList", BindingFlags.Instance | BindingFlags.Public);
@@ -252,6 +250,7 @@ namespace DalamudRepoBrowser
 
         public static void FetchRepoListAsync(string repoMaster)
         {
+            DalamudApi.PluginLog.Information($"Fetching repositories from {repoMaster}");
 
             var startedFetch = fetch;
             Task.Run(() =>
@@ -261,6 +260,7 @@ namespace DalamudRepoBrowser
                     string data;
                     if (ShouldCheckRepoList())
                     {
+                        DalamudApi.PluginLog.Information($"Retrieving latest data from repo master api.");
                         data = httpClient.GetStringAsync(repoMaster).Result;
                         File.WriteAllText(GetReposFilePath(), data);
                         Config.LastUpdatedRepoList = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds();
@@ -268,6 +268,7 @@ namespace DalamudRepoBrowser
                     }
                     else
                     {
+                        DalamudApi.PluginLog.Information($"Using cached data for repo list.");
                         data = File.ReadAllText(GetReposFilePath());
                     }
 
@@ -275,6 +276,7 @@ namespace DalamudRepoBrowser
 
                     if (fetch != startedFetch) return;
 
+                    DalamudApi.PluginLog.Information($"Fetched {repos.Count} repositories from {repoMaster}");
 
                     //Parallel.ForEach(repos, new ParallelOptions { MaxDegreeOfParallelism = 10 }, FetchRepoPlugins);
 
@@ -288,6 +290,7 @@ namespace DalamudRepoBrowser
                         }
                         catch
                         {
+                            DalamudApi.PluginLog.Error($"Failed parsing {(string)json["pluginMasterUrl"]}.");
                             continue;
                         }
 
@@ -295,12 +298,14 @@ namespace DalamudRepoBrowser
                         {
                             if (!fetchedRepos.Add(info.url))
                             {
+                                DalamudApi.PluginLog.Error($"{info.url} has already been fetched");
                                 continue;
                             }
                         }
 
                         if (info.plugins.Count == 0)
                         {
+                            DalamudApi.PluginLog.Information($"{info.url} contains no usable plugins!");
                             continue;
                         }
 
@@ -315,6 +320,7 @@ namespace DalamudRepoBrowser
                 }
                 catch (Exception e)
                 {
+                    DalamudApi.PluginLog.Error(e, $"Failed loading repositories from {repoMaster}");
                 }
             });
         }
@@ -329,7 +335,7 @@ namespace DalamudRepoBrowser
             }
             catch
             {
-                IPluginLog .LogError($"Failed parsing {(string)json["pluginMasterUrl"]}.");
+                DalamudApi.PluginLog.Error($"Failed parsing {(string)json["pluginMasterUrl"]}.");
                 return;
             }
 
@@ -337,12 +343,12 @@ namespace DalamudRepoBrowser
             {
                 if (!fetchedRepos.Add(info.url))
                 {
-                    IPluginLog .LogError($"{info.url} has already been fetched");
+                    DalamudApi.PluginLog.Error($"{info.url} has already been fetched");
                     return;
                 }
             }
 
-            IPluginLog .LogInformation($"Fetching plugins from {info.url}");
+            DalamudApi.PluginLog.Information($"Fetching plugins from {info.url}");
 
             var startedFetch = fetch;
             try
@@ -353,7 +359,7 @@ namespace DalamudRepoBrowser
 
                 if (list.Count == 0)
                 {
-                    IPluginLog .LogInformation($"{info.url} contains no usable plugins!");
+                    DalamudApi.PluginLog.Information($"{info.url} contains no usable plugins!");
                     return;
                 }
 
@@ -367,7 +373,7 @@ namespace DalamudRepoBrowser
             }
             catch (Exception e)
             {
-                IPluginLog .LogError(e, $"Failed loading plugins from {info.url}");
+                DalamudApi.PluginLog.Error(e, $"Failed loading plugins from {info.url}");
             }
         }*/
 
