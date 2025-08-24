@@ -1,23 +1,32 @@
 ﻿using System.Collections.Generic;
 using Dalamud.Configuration;
 
-namespace DalamudRepoBrowser
+namespace DalamudRepoBrowser;
+
+public class Configuration : IPluginConfiguration
 {
-    public class Configuration : IPluginConfiguration
+    public bool HideEnabledRepos = false;
+    public long LastUpdatedRepoList = 0;
+    public int MaxPlugins = 20;
+    public string RepoMasters = string.Empty;
+    public int RepoSort = 0;
+    public HashSet<string> SeenRepos = new();
+
+    public bool ShowOutdatedPlugins { get; set; }
+    public int Version { get; set; }
+
+
+    public void Initialize()
     {
-        public int Version { get; set; }
-        public string RepoMasters = string.Empty;
-        public bool HideEnabledRepos = false;
-        public bool HideBranches = true;
-        public int RepoSort = 0;
-        public int ShowOutdated = 0;
-        public int MinStars = 2;
-        public int MaxPlugins = 20;
-        public HashSet<string> SeenRepos = new();
-        public long LastUpdatedRepoList = 0;
+        if (Version < 2)
+        {
+            ShowOutdatedPlugins = true;
+            Version = 2;
+        }
+    }
 
-        public void Initialize() { }
-
-        public void Save() => DalamudApi.PluginInterface.SavePluginConfig(this);
+    public void Save()
+    {
+        DalamudApi.PluginInterface.SavePluginConfig(this);
     }
 }
