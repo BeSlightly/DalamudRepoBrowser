@@ -34,7 +34,7 @@ jobs:
         shell: pwsh
 
       - name: Build Plugin and Package
-        run: dotnet build DalamudRepoBrowser/DalamudRepoBrowser.csproj -c Release --nologo
+        run: dotnet build DalamudRepoBrowser.csproj -c Release --nologo
         shell: pwsh
 
       - name: Update repo.json
@@ -42,7 +42,7 @@ jobs:
         run: |
           $releaseTag = "${{ github.event.inputs.tag }}"
           echo "Processing release for tag: $releaseTag"
-          $version = (Select-Xml -Path DalamudRepoBrowser/DalamudRepoBrowser.csproj -XPath "/Project/PropertyGroup/Version").Node.InnerText
+          $version = (Select-Xml -Path DalamudRepoBrowser.csproj -XPath "/Project/PropertyGroup/Version").Node.InnerText
           echo "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           $repoJsonPath = "./repo.json"
           $repoJson = Get-Content -Path $repoJsonPath -Raw | ConvertFrom-Json
@@ -63,7 +63,7 @@ jobs:
           name: Release ${{ github.event.inputs.tag }}
           body: "${{ steps.prep.outputs.version }}"
           generate_release_notes: true
-          files: DalamudRepoBrowser/bin/Release/DalamudRepoBrowser/latest.zip
+          files: bin/Release/DalamudRepoBrowser/latest.zip
 
       - name: Commit and Push Updated repo.json
         run: |
