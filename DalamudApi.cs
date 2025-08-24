@@ -17,39 +17,18 @@ namespace Dalamud;
 
 public class DalamudApi
 {
-    private static PluginCommandManager<IDalamudPlugin> pluginCommandManager = null!;
-
-    public DalamudApi()
-    {
-    }
-
-    public DalamudApi(IDalamudPlugin plugin)
-    {
-        pluginCommandManager ??= new PluginCommandManager<IDalamudPlugin>(plugin);
-    }
-
-    public DalamudApi(IDalamudPlugin plugin, IDalamudPluginInterface pluginInterface)
-    {
-        if (!pluginInterface.Inject(this))
-        {
-            PluginLog.Error("Failed loading DalamudApi!");
-            return;
-        }
-
-        pluginCommandManager ??= new PluginCommandManager<IDalamudPlugin>(plugin);
-    }
-
+    // We use the null-forgiving operator (!) on all [PluginService] properties because they are guaranteed to be initialized by the framework.
     [PluginService] public static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
 
     [PluginService] public static IBuddyList BuddyList { get; private set; } = null!;
 
     [PluginService] public static IChatGui ChatGui { get; private set; } = null!;
 
-    [PluginService] public static IPluginLog PluginLog { get; } = null!;
+    [PluginService] public static IPluginLog PluginLog { get; private set; } = null!;
 
     [PluginService] public static IClientState ClientState { get; private set; } = null!;
 
-    [PluginService] public static ICommandManager CommandManager { get; } = null!;
+    [PluginService] public static ICommandManager CommandManager { get; private set; } = null!;
 
     [PluginService] public static ICondition Condition { get; private set; } = null!;
 
@@ -78,6 +57,28 @@ public class DalamudApi
     [PluginService] public static ITargetManager TargetManager { get; private set; } = null!;
 
     [PluginService] public static IToastGui ToastGui { get; private set; } = null!;
+
+    private static PluginCommandManager<IDalamudPlugin> pluginCommandManager = null!;
+
+    public DalamudApi()
+    {
+    }
+
+    public DalamudApi(IDalamudPlugin plugin)
+    {
+        pluginCommandManager ??= new PluginCommandManager<IDalamudPlugin>(plugin);
+    }
+
+    public DalamudApi(IDalamudPlugin plugin, IDalamudPluginInterface pluginInterface)
+    {
+        if (!pluginInterface.Inject(this))
+        {
+            PluginLog.Error("Failed loading DalamudApi!");
+            return;
+        }
+
+        pluginCommandManager ??= new PluginCommandManager<IDalamudPlugin>(plugin);
+    }
 
     public static DalamudApi operator +(DalamudApi container, object o)
     {
@@ -122,12 +123,6 @@ public class PluginCommandManager<T> : IDisposable where T : IDalamudPlugin
         AddCommandHandlers();
     }
 
-    public void Dispose()
-    {
-        RemoveCommandHandlers();
-        GC.SuppressFinalize(this);
-    }
-
     private void AddCommandHandlers()
     {
         foreach (var (command, commandInfo) in pluginCommands)
@@ -166,6 +161,12 @@ public class PluginCommandManager<T> : IDisposable where T : IDalamudPlugin
 
         return commandInfoTuples;
     }
+
+    public void Dispose()
+    {
+        RemoveCommandHandlers();
+        GC.SuppressFinalize(this);
+    }
 }
 
 #endregion
@@ -175,23 +176,23 @@ public class PluginCommandManager<T> : IDisposable where T : IDalamudPlugin
 [AttributeUsage(AttributeTargets.Method)]
 public class AliasesAttribute : Attribute
 {
+    public string[] Aliases { get; }
+
     public AliasesAttribute(params string[] aliases)
     {
         Aliases = aliases;
     }
-
-    public string[] Aliases { get; }
 }
 
 [AttributeUsage(AttributeTargets.Method)]
 public class CommandAttribute : Attribute
 {
+    public string Command { get; }
+
     public CommandAttribute(string command)
     {
         Command = command;
     }
-
-    public string Command { get; }
 }
 
 [AttributeUsage(AttributeTargets.Method)]
@@ -202,12 +203,12 @@ public class DoNotShowInHelpAttribute : Attribute
 [AttributeUsage(AttributeTargets.Method)]
 public class HelpMessageAttribute : Attribute
 {
+    public string HelpMessage { get; }
+
     public HelpMessageAttribute(string helpMessage)
     {
         HelpMessage = helpMessage;
     }
-
-    public string HelpMessage { get; }
 }
 
 #endregion

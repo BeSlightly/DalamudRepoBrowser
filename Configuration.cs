@@ -9,7 +9,7 @@ public class Configuration : IPluginConfiguration
     public long LastUpdatedRepoList = 0;
     public int MaxPlugins = 20;
     public string RepoMasters = string.Empty;
-    public int RepoSort = 0;
+    public int RepoSort = 4;
     public HashSet<string> SeenRepos = new();
 
     public bool ShowOutdatedPlugins { get; set; }
