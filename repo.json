@@ -1,28 +1,28 @@
 [
-    {
-        "Author": "UnknownX, iRobsie, BeSlightly",
-        "Name": "DalamudRepoBrowser",
-        "Punchline": "Browse and add third party repositories in an instant",
-        "Description": "An interface for browsing and managing third party repositories.",
-        "Changelog": "",
-        "InternalName": "DalamudRepoBrowser",
-        "AssemblyVersion": "2.0.3.3",
-        "RepoUrl": "https://github.com/BeSlightly/DalamudRepoBrowser",
-        "ApplicableVersion": "any",
-        "CategoryTags": [
-            "other"
-        ],
-        "DalamudApiLevel": 13,
-        "IconUrl": "",
-        "ImageUrls": [
-            ""
-        ],
-        "DownloadLinkInstall": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.3/latest.zip",
-        "IsHide": false,
-        "IsTestingExclusive": false,
-        "DownloadLinkTesting": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.3/latest.zip",
-        "DownloadLinkUpdate": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.3/latest.zip",
-        "DownloadCount": 1,
-        "LastUpdate": "1700166956"
-    }
+  {
+    "Author": "UnknownX, iRobsie, BeSlightly",
+    "Name": "DalamudRepoBrowser",
+    "Punchline": "Browse and add third party repositories in an instant",
+    "Description": "An interface for browsing and managing third party repositories.",
+    "Changelog": "",
+    "InternalName": "DalamudRepoBrowser",
+    "AssemblyVersion": "2.0.3.4",
+    "RepoUrl": "https://github.com/BeSlightly/DalamudRepoBrowser",
+    "ApplicableVersion": "any",
+    "CategoryTags": [
+      "other"
+    ],
+    "DalamudApiLevel": 13,
+    "IconUrl": "",
+    "ImageUrls": [
+      ""
+    ],
+    "DownloadLinkInstall": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.4/latest.zip",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkTesting": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.4/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.4/latest.zip",
+    "DownloadCount": 1,
+    "LastUpdate": 1755997805
+  }
 ]
