@@ -242,6 +242,8 @@ public class DalamudRepoBrowser : IDalamudPlugin
 
     public static void FetchRepoMasters()
     {
+        DalamudApi.PluginLog.Debug("Manual refetch triggered - clearing caches and fetching fresh data");
+        
         lock (repoList)
         {
             fetch++;
@@ -252,6 +254,13 @@ public class DalamudRepoBrowser : IDalamudPlugin
         {
             fetchedRepos.Clear();
         }
+
+        // Force refresh by clearing cache timestamps
+        Config.LastUpdatedPriorityRepos = 0;
+        Config.LastUpdatedRepoList = 0;
+        Config.Save();
+        
+        DalamudApi.PluginLog.Debug("Cache timestamps cleared, forcing fresh fetch from remote sources");
 
         FetchPriorityReposAsync();
         FetchRepoListAsync(repoMaster);
@@ -303,7 +312,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
 
     public static void FetchPriorityReposAsync()
     {
-        DalamudApi.PluginLog.Information($"Fetching priority repositories from {priorityReposMaster}");
+        DalamudApi.PluginLog.Debug($"Fetching priority repositories from {priorityReposMaster}");
 
         Task.Run(() =>
         {
@@ -312,7 +321,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
                 string data;
                 if (ShouldCheckPriorityReposList())
                 {
-                    DalamudApi.PluginLog.Information("Retrieving latest priority repos data from master api.");
+                    DalamudApi.PluginLog.Debug("Retrieving latest priority repos data from master api.");
                     data = httpClient.GetStringAsync(priorityReposMaster).Result;
                     File.WriteAllText(GetPriorityReposFilePath(), data);
                     Config.LastUpdatedPriorityRepos = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds();
@@ -320,7 +329,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
                 }
                 else
                 {
-                    DalamudApi.PluginLog.Information("Using cached data for priority repos list.");
+                    DalamudApi.PluginLog.Debug("Using cached data for priority repos list.");
                     data = File.ReadAllText(GetPriorityReposFilePath());
                 }
 
@@ -337,7 +346,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
                 }
                 
                 Config.Save();
-                DalamudApi.PluginLog.Information($"Loaded {Config.PriorityRepos.Count} priority repositories");
+                DalamudApi.PluginLog.Debug($"Loaded {Config.PriorityRepos.Count} priority repositories");
             }
             catch (Exception e)
             {
@@ -348,7 +357,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
 
     public static void FetchRepoListAsync(string repoMaster)
     {
-        DalamudApi.PluginLog.Information($"Fetching repositories from {repoMaster}");
+        DalamudApi.PluginLog.Debug($"Fetching repositories from {repoMaster}");
 
         var startedFetch = fetch;
         Task.Run(() =>
@@ -358,7 +367,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
                 string data;
                 if (ShouldCheckRepoList())
                 {
-                    DalamudApi.PluginLog.Information("Retrieving latest data from repo master api.");
+                    DalamudApi.PluginLog.Debug("Retrieving latest data from repo master api.");
                     data = httpClient.GetStringAsync(repoMaster).Result;
                     File.WriteAllText(GetReposFilePath(), data);
                     Config.LastUpdatedRepoList = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds();
@@ -366,7 +375,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
                 }
                 else
                 {
-                    DalamudApi.PluginLog.Information("Using cached data for repo list.");
+                    DalamudApi.PluginLog.Debug("Using cached data for repo list.");
                     data = File.ReadAllText(GetReposFilePath());
                 }
 
@@ -374,7 +383,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
 
                 if (fetch != startedFetch) return;
 
-                DalamudApi.PluginLog.Information($"Fetched {repos.Count} repositories from {repoMaster}");
+                DalamudApi.PluginLog.Debug($"Fetched {repos.Count} repositories from {repoMaster}");
 
                 var tempRepoList = new List<RepoInfo>();
                 
@@ -403,7 +412,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
 
                     if (info.plugins.Count == 0)
                     {
-                        DalamudApi.PluginLog.Information($"{info.url} contains no usable plugins!");
+                        DalamudApi.PluginLog.Debug($"{info.url} contains no usable plugins!");
                         continue;
                     }
 
@@ -411,9 +420,9 @@ public class DalamudRepoBrowser : IDalamudPlugin
                 }
                 
                 // Apply plugin deduplication using priority repos
-                DalamudApi.PluginLog.Information($"Applying plugin deduplication with {Config.PriorityRepos.Count} priority repos");
+                DalamudApi.PluginLog.Debug($"Applying plugin deduplication with {Config.PriorityRepos.Count} priority repos");
                 var deduplicatedRepos = ApplyPluginDeduplication(tempRepoList);
-                DalamudApi.PluginLog.Information($"Deduplication complete: {tempRepoList.Count} -> {deduplicatedRepos.Count} repos");
+                DalamudApi.PluginLog.Debug($"Deduplication complete: {tempRepoList.Count} -> {deduplicatedRepos.Count} repos");
                 
                 lock (repoList)
                 {
@@ -432,7 +441,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
 
     private static List<RepoInfo> ApplyPluginDeduplication(List<RepoInfo> repos)
     {
-        DalamudApi.PluginLog.Information($"Starting deduplication with {repos.Count} repos");
+        DalamudApi.PluginLog.Debug($"Starting deduplication with {repos.Count} repos");
         
         // Group plugins by their internal name for deduplication
         var pluginGroups = new Dictionary<string, List<(RepoInfo repo, PluginInfo plugin)>>();
@@ -453,10 +462,10 @@ public class DalamudRepoBrowser : IDalamudPlugin
         }
         
         // Apply deduplication logic based on priority repos
-        DalamudApi.PluginLog.Information($"Found {pluginGroups.Count} unique plugins across all repos");
+        DalamudApi.PluginLog.Debug($"Found {pluginGroups.Count} unique plugins across all repos");
         
         var duplicatePlugins = pluginGroups.Where(pg => pg.Value.Count > 1).ToList();
-        DalamudApi.PluginLog.Information($"Found {duplicatePlugins.Count} plugins with duplicates that need deduplication");
+        DalamudApi.PluginLog.Debug($"Found {duplicatePlugins.Count} plugins with duplicates that need deduplication");
         
         // Since we can't modify the readonly struct, we'll return repos that have at least one allowed plugin
         // The actual deduplication will happen at the UI level
