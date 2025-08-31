@@ -81,6 +81,9 @@ public class DalamudRepoBrowser : IDalamudPlugin
 
     public static readonly string repoMaster =
         @"https://github.com/BeSlightly/Aetherfeed/raw/refs/heads/main/docs/config.json";
+    
+    public static readonly string priorityReposMaster =
+        @"https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/docs/priority-repos.json";
 
     public static List<RepoInfo> repoList = new();
     public static HashSet<string> fetchedRepos = new();
@@ -250,6 +253,7 @@ public class DalamudRepoBrowser : IDalamudPlugin
             fetchedRepos.Clear();
         }
 
+        FetchPriorityReposAsync();
         FetchRepoListAsync(repoMaster);
     }
 
@@ -273,6 +277,73 @@ public class DalamudRepoBrowser : IDalamudPlugin
     public static string GetReposFilePath()
     {
         return DalamudApi.PluginInterface.ConfigDirectory.FullName + "/repos.json";
+    }
+
+    public static string GetPriorityReposFilePath()
+    {
+        return DalamudApi.PluginInterface.ConfigDirectory.FullName + "/priority-repos.json";
+    }
+
+    private static bool ShouldCheckPriorityReposList()
+    {
+        try
+        {
+            return !File.Exists(GetPriorityReposFilePath())
+                   || Config.LastUpdatedPriorityRepos == 0
+                   || new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds() >=
+                   Config.LastUpdatedPriorityRepos + 86400000
+                   || (DateTime.UtcNow.Hour >= 8 &&
+                       DateTimeOffset.FromUnixTimeSeconds(Config.LastUpdatedPriorityRepos).Hour < 8);
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    public static void FetchPriorityReposAsync()
+    {
+        DalamudApi.PluginLog.Information($"Fetching priority repositories from {priorityReposMaster}");
+
+        Task.Run(() =>
+        {
+            try
+            {
+                string data;
+                if (ShouldCheckPriorityReposList())
+                {
+                    DalamudApi.PluginLog.Information("Retrieving latest priority repos data from master api.");
+                    data = httpClient.GetStringAsync(priorityReposMaster).Result;
+                    File.WriteAllText(GetPriorityReposFilePath(), data);
+                    Config.LastUpdatedPriorityRepos = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds();
+                    Config.Save();
+                }
+                else
+                {
+                    DalamudApi.PluginLog.Information("Using cached data for priority repos list.");
+                    data = File.ReadAllText(GetPriorityReposFilePath());
+                }
+
+                var priorityRepos = JArray.Parse(data);
+                Config.PriorityRepos.Clear();
+                
+                foreach (var repo in priorityRepos)
+                {
+                    var repoUrl = repo.ToString();
+                    if (!string.IsNullOrEmpty(repoUrl))
+                    {
+                        Config.PriorityRepos.Add(repoUrl);
+                    }
+                }
+                
+                Config.Save();
+                DalamudApi.PluginLog.Information($"Loaded {Config.PriorityRepos.Count} priority repositories");
+            }
+            catch (Exception e)
+            {
+                DalamudApi.PluginLog.Error(e, $"Failed loading priority repositories from {priorityReposMaster}");
+            }
+        });
     }
 
     public static void FetchRepoListAsync(string repoMaster)
@@ -305,6 +376,8 @@ public class DalamudRepoBrowser : IDalamudPlugin
 
                 DalamudApi.PluginLog.Information($"Fetched {repos.Count} repositories from {repoMaster}");
 
+                var tempRepoList = new List<RepoInfo>();
+                
                 foreach (var json in repos)
                 {
                     RepoInfo info;
@@ -334,11 +407,18 @@ public class DalamudRepoBrowser : IDalamudPlugin
                         continue;
                     }
 
-                    lock (repoList)
-                    {
-                        if (fetch != startedFetch) return;
-                        repoList.Add(info);
-                    }
+                    tempRepoList.Add(info);
+                }
+                
+                // Apply plugin deduplication using priority repos
+                DalamudApi.PluginLog.Information($"Applying plugin deduplication with {Config.PriorityRepos.Count} priority repos");
+                var deduplicatedRepos = ApplyPluginDeduplication(tempRepoList);
+                DalamudApi.PluginLog.Information($"Deduplication complete: {tempRepoList.Count} -> {deduplicatedRepos.Count} repos");
+                
+                lock (repoList)
+                {
+                    if (fetch != startedFetch) return;
+                    repoList.AddRange(deduplicatedRepos);
                 }
 
                 sortList = 60;
@@ -349,6 +429,98 @@ public class DalamudRepoBrowser : IDalamudPlugin
             }
         });
     }
+
+    private static List<RepoInfo> ApplyPluginDeduplication(List<RepoInfo> repos)
+    {
+        DalamudApi.PluginLog.Information($"Starting deduplication with {repos.Count} repos");
+        
+        // Group plugins by their internal name for deduplication
+        var pluginGroups = new Dictionary<string, List<(RepoInfo repo, PluginInfo plugin)>>();
+        
+        foreach (var repo in repos)
+        {
+            foreach (var plugin in repo.plugins)
+            {
+                var pluginKey = !string.IsNullOrEmpty(plugin.name) ? plugin.name : "Unknown";
+                
+                if (!pluginGroups.ContainsKey(pluginKey))
+                {
+                    pluginGroups[pluginKey] = new List<(RepoInfo, PluginInfo)>();
+                }
+                
+                pluginGroups[pluginKey].Add((repo, plugin));
+            }
+        }
+        
+        // Apply deduplication logic based on priority repos
+        DalamudApi.PluginLog.Information($"Found {pluginGroups.Count} unique plugins across all repos");
+        
+        var duplicatePlugins = pluginGroups.Where(pg => pg.Value.Count > 1).ToList();
+        DalamudApi.PluginLog.Information($"Found {duplicatePlugins.Count} plugins with duplicates that need deduplication");
+        
+        // Since we can't modify the readonly struct, we'll return repos that have at least one allowed plugin
+        // The actual deduplication will happen at the UI level
+        var result = new List<RepoInfo>();
+        var addedRepos = new HashSet<string>();
+        
+        foreach (var pluginGroup in pluginGroups)
+        {
+            var pluginName = pluginGroup.Key;
+            var candidates = pluginGroup.Value;
+            
+            if (candidates.Count == 1)
+            {
+                // Only one version, add the repo if not already added
+                var (repo, plugin) = candidates[0];
+                if (!addedRepos.Contains(repo.url))
+                {
+                    result.Add(repo);
+                    addedRepos.Add(repo.url);
+                }
+            }
+            else
+            {
+                // Multiple versions, apply priority logic
+                var priorityCandidates = candidates.Where(c => Config.PriorityRepos.Contains(c.repo.url)).ToList();
+                
+                if (priorityCandidates.Any())
+                {
+                    // Use the best candidate from priority repos
+                    var bestCandidate = GetBestCandidate(priorityCandidates);
+                    if (!addedRepos.Contains(bestCandidate.repo.url))
+                    {
+                        result.Add(bestCandidate.repo);
+                        addedRepos.Add(bestCandidate.repo.url);
+                    }
+                }
+                else
+                {
+                    // No priority repos, add all candidate repos
+                    foreach (var (repo, plugin) in candidates)
+                    {
+                        if (!addedRepos.Contains(repo.url))
+                        {
+                            result.Add(repo);
+                            addedRepos.Add(repo.url);
+                        }
+                    }
+                }
+            }
+        }
+        
+        return result;
+    }
+    
+    private static (RepoInfo repo, PluginInfo plugin) GetBestCandidate(List<(RepoInfo repo, PluginInfo plugin)> candidates)
+    {
+        // Sort by API level (descending) then by last update (descending)
+        return candidates
+            .OrderByDescending(c => c.plugin.apiLevel)
+            .ThenByDescending(c => c.plugin.lastUpdate)
+            .First();
+    }
+    
+
 
     public static bool GetRepoEnabled(string url)
     {

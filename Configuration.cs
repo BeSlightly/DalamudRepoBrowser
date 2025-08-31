@@ -14,6 +14,8 @@ public class Configuration : IPluginConfiguration
 
     public bool ShowOutdatedPlugins { get; set; }
     public int Version { get; set; }
+    public long LastUpdatedPriorityRepos = 0;
+    public HashSet<string> PriorityRepos = new();
 
 
     public void Initialize()
