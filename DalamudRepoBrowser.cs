@@ -80,10 +80,10 @@ public class DalamudRepoBrowser : IDalamudPlugin
     private static IEnumerable? dalamudRepoSettings;
 
     public static readonly string repoMaster =
-        @"https://github.com/BeSlightly/Aetherfeed/raw/refs/heads/main/docs/config.json";
+        @"https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/plugins.json";
     
     public static readonly string priorityReposMaster =
-        @"https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/docs/priority-repos.json";
+        @"https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/priority-repos.json";
 
     public static List<RepoInfo> repoList = new();
     public static HashSet<string> fetchedRepos = new();
