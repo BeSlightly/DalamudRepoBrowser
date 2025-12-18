@@ -6,7 +6,7 @@
     "Description": "An interface for browsing and managing third party repositories.",
     "Changelog": "",
     "InternalName": "DalamudRepoBrowser",
-    "AssemblyVersion": "2.0.3.6",
+    "AssemblyVersion": "2.0.3.7",
     "RepoUrl": "https://github.com/BeSlightly/DalamudRepoBrowser",
     "ApplicableVersion": "any",
     "CategoryTags": [
@@ -17,12 +17,12 @@
     "ImageUrls": [
       ""
     ],
-    "DownloadLinkInstall": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.6/latest.zip",
+    "DownloadLinkInstall": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.7/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkTesting": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.6/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.6/latest.zip",
+    "DownloadLinkTesting": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.7/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/BeSlightly/DalamudRepoBrowser/releases/download/v2.0.3.7/latest.zip",
     "DownloadCount": 1,
-    "LastUpdate": 1763760097
+    "LastUpdate": 1766020289
   }
 ]
