@@ -861,7 +861,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             var accentInset = 0f;
             var accentGap = 8f * scale;
             var hasAccent = enabled || !seen;
-            var accentOffset = accentWidth + accentGap;
+            var accentOffset = hasAccent ? (accentWidth + accentGap) : 0f;
 
             var lineHeight = ImGui.GetTextLineHeightWithSpacing();
             var singleChipHeight = ImGui.GetTextLineHeight() + (chipPadding.Y * 2);
@@ -944,6 +944,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             var contentPaddingX = padding + accentOffset;
             ImGui.SetCursorScreenPos(new Vector2(cardStart.X + contentPaddingX, cardStart.Y + padding));
             ImGui.PushID(repoInfo.Url);
+            ImGui.Indent(contentPaddingX);
 
             // Using columns for layout
             if (ImGui.BeginTable($"Header##{repoInfo.Url}", 2, ImGuiTableFlags.SizingStretchProp))
@@ -1125,6 +1126,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                 isFirstChip = false;
             }
 
+            ImGui.Unindent(contentPaddingX);
             ImGui.PopID();
 
             ImGui.SetCursorScreenPos(new Vector2(cardStart.X, cardStart.Y + cardSize.Y + (12f * scale)));
