@@ -20,7 +20,7 @@ internal sealed class RepoManager : IDisposable
 
     public const string RepoMasterUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/plugins.json";
     public const string PriorityReposUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/priority-repos.json";
-    private const string RepoMasterCommitApiUrl = "https://api.github.com/repos/BeSlightly/Aetherfeed/commits?path=public/data/plugins.json&per_page=1";
+    private const string RepoMasterLastUpdatedUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/last-updated.json";
 
     private readonly Configuration config;
     private readonly IDalamudPluginInterface pluginInterface;
@@ -458,19 +458,34 @@ internal sealed class RepoManager : IDisposable
     {
         try
         {
-            using var response = await httpClient.GetAsync(RepoMasterCommitApiUrl).ConfigureAwait(false);
+            using var response = await httpClient.GetAsync(RepoMasterLastUpdatedUrl).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
             var payload = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            var date = (string?)JArray.Parse(payload).FirstOrDefault()?["commit"]?["committer"]?["date"];
-            if (DateTimeOffset.TryParse(date, out var parsed))
+            var json = JObject.Parse(payload);
+            var unix = (long?)json["unix"];
+            var nextUnix = (long?)json["next_unix"];
+            var updated = false;
+
+            if (unix.HasValue)
             {
-                config.LastRemoteRepoListUpdatedUtc = parsed.ToUnixTimeSeconds();
+                config.LastRemoteRepoListUpdatedUtc = unix.Value;
+                updated = true;
+            }
+
+            if (nextUnix.HasValue)
+            {
+                config.NextRemoteRepoListUpdatedUtc = nextUnix.Value;
+                updated = true;
+            }
+
+            if (updated)
+            {
                 config.Save();
             }
         }
         catch (Exception ex)
         {
-            log.Debug(ex, "Failed to fetch repo master commit metadata.");
+            log.Debug(ex, "Failed to fetch repo master update metadata.");
         }
     }
 }

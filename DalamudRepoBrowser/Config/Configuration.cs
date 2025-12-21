@@ -22,6 +22,7 @@ public class Configuration : IPluginConfiguration
     public bool UseModernUi { get; set; }
     public bool DismissedModernWarning { get; set; }
     public long LastRemoteRepoListUpdatedUtc { get; set; }
+    public long NextRemoteRepoListUpdatedUtc { get; set; }
 
     public void Initialize()
     {
@@ -53,6 +54,12 @@ public class Configuration : IPluginConfiguration
         {
             LastRemoteRepoListUpdatedUtc = 0;
             Version = 6;
+        }
+
+        if (Version < 7)
+        {
+            NextRemoteRepoListUpdatedUtc = 0;
+            Version = 7;
         }
     }
 

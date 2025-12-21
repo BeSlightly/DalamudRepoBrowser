@@ -1295,7 +1295,9 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         }
 
         var remoteUpdated = DateTimeOffset.FromUnixTimeSeconds(config.LastRemoteRepoListUpdatedUtc).ToLocalTime();
-        var nextUpdate = remoteUpdated.AddHours(6);
+        var nextUpdate = config.NextRemoteRepoListUpdatedUtc > 0
+            ? DateTimeOffset.FromUnixTimeSeconds(config.NextRemoteRepoListUpdatedUtc).ToLocalTime()
+            : remoteUpdated.AddHours(6);
         var now = uiOpenedAt;
         var nextText = GetApproximateNextUpdateText(nextUpdate, now);
         return $"Aetherfeed updated {remoteUpdated:MMM dd, yyyy HH:mm} • {nextText}";
