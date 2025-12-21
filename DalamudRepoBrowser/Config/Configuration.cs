@@ -16,7 +16,12 @@ public class Configuration : IPluginConfiguration
     public int RepoSort { get; set; } = 4;
     public HashSet<string> SeenRepos { get; set; } = new();
     public HashSet<string> PriorityRepos { get; set; } = new();
+    public bool HideClosedSourcePlugins { get; set; }
+    public bool HideNonEnglishPlugins { get; set; }
     public bool ShowOutdatedPlugins { get; set; }
+    public bool UseModernUi { get; set; }
+    public bool DismissedModernWarning { get; set; }
+    public long LastRemoteRepoListUpdatedUtc { get; set; }
 
     public void Initialize()
     {
@@ -24,6 +29,30 @@ public class Configuration : IPluginConfiguration
         {
             ShowOutdatedPlugins = true;
             Version = 2;
+        }
+
+        if (Version < 3)
+        {
+            UseModernUi = false;
+            Version = 3;
+        }
+
+        if (Version < 4)
+        {
+            HideNonEnglishPlugins = true;
+            Version = 4;
+        }
+
+        if (Version < 5)
+        {
+            HideClosedSourcePlugins = false;
+            Version = 5;
+        }
+
+        if (Version < 6)
+        {
+            LastRemoteRepoListUpdatedUtc = 0;
+            Version = 6;
         }
     }
 

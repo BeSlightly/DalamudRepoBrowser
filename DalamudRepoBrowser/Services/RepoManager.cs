@@ -19,6 +19,7 @@ internal sealed class RepoManager : IDisposable
 
     public const string RepoMasterUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/plugins.json";
     public const string PriorityReposUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/priority-repos.json";
+    private const string RepoMasterCommitApiUrl = "https://api.github.com/repos/BeSlightly/Aetherfeed/commits?path=public/data/plugins.json&per_page=1";
 
     private readonly Configuration config;
     private readonly IDalamudPluginInterface pluginInterface;
@@ -49,6 +50,7 @@ internal sealed class RepoManager : IDisposable
             "Application-Version",
             Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion ?? "1.0.0.0");
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("DalamudRepoBrowser/1.0");
     }
 
     public int CurrentApiLevel => repoSettingsAccessor.CurrentApiLevel;
@@ -248,7 +250,9 @@ internal sealed class RepoManager : IDisposable
             if (ShouldCheckRepoList())
             {
                 log.Debug("Retrieving latest data from repo master api.");
-                data = await httpClient.GetStringAsync(repoMaster).ConfigureAwait(false);
+                using var response = await httpClient.GetAsync(repoMaster).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                data = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 await File.WriteAllTextAsync(GetReposFilePath(), data).ConfigureAwait(false);
                 config.LastUpdatedRepoList = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 config.Save();
@@ -258,6 +262,8 @@ internal sealed class RepoManager : IDisposable
                 log.Debug("Using cached data for repo list.");
                 data = await File.ReadAllTextAsync(GetReposFilePath()).ConfigureAwait(false);
             }
+
+            await UpdateRepoMasterTimestampAsync().ConfigureAwait(false);
 
             var repos = JArray.Parse(data);
 
@@ -325,7 +331,11 @@ internal sealed class RepoManager : IDisposable
         {
             foreach (var plugin in repo.Plugins)
             {
-                var pluginKey = !string.IsNullOrEmpty(plugin.Name) ? plugin.Name : "Unknown";
+                var pluginKey = !string.IsNullOrEmpty(plugin.InternalName) ? plugin.InternalName : plugin.Name;
+                if (string.IsNullOrEmpty(pluginKey))
+                {
+                    continue;
+                }
 
                 if (!pluginGroups.TryGetValue(pluginKey, out var list))
                 {
@@ -339,48 +349,79 @@ internal sealed class RepoManager : IDisposable
 
         log.Debug($"Found {pluginGroups.Count} unique plugins across all repos");
 
-        var duplicatePlugins = pluginGroups.Where(pg => pg.Value.Count > 1).ToList();
-        log.Debug($"Found {duplicatePlugins.Count} plugins with duplicates that need deduplication");
-
-        var result = new List<RepoInfo>();
-        var addedRepos = new HashSet<string>();
+        var selectedByRepo = new Dictionary<string, HashSet<string>>();
 
         foreach (var pluginGroup in pluginGroups)
         {
-            var candidates = pluginGroup.Value;
-
-            if (candidates.Count == 1)
+            var occurrencesByDeveloper = new Dictionary<string, List<(RepoInfo repo, PluginInfo plugin)>>();
+            foreach (var occurrence in pluginGroup.Value)
             {
-                var (repo, _) = candidates[0];
-                if (addedRepos.Add(repo.Url))
+                var developer = !string.IsNullOrEmpty(occurrence.repo.Owner)
+                    ? occurrence.repo.Owner
+                    : (!string.IsNullOrEmpty(occurrence.plugin.Author)
+                        ? occurrence.plugin.Author
+                        : "Unknown Developer");
+
+                if (!occurrencesByDeveloper.TryGetValue(developer, out var list))
                 {
-                    result.Add(repo);
+                    list = new List<(RepoInfo repo, PluginInfo plugin)>();
+                    occurrencesByDeveloper[developer] = list;
                 }
+
+                list.Add(occurrence);
             }
-            else
-            {
-                var priorityCandidates = candidates.Where(c => config.PriorityRepos.Contains(c.repo.Url)).ToList();
 
-                if (priorityCandidates.Any())
+            var deduplicatedOccurrences = new List<(RepoInfo repo, PluginInfo plugin)>();
+            foreach (var developerGroup in occurrencesByDeveloper.Values)
+            {
+                deduplicatedOccurrences.Add(GetBestCandidate(developerGroup));
+            }
+
+            var priorityCandidates = deduplicatedOccurrences
+                .Where(occurrence => config.PriorityRepos.Contains(occurrence.repo.Url))
+                .ToList();
+
+            var chosenOccurrences = priorityCandidates.Count > 0
+                ? new List<(RepoInfo repo, PluginInfo plugin)> { GetBestCandidate(priorityCandidates) }
+                : deduplicatedOccurrences;
+
+            foreach (var occurrence in chosenOccurrences)
+            {
+                if (!selectedByRepo.TryGetValue(occurrence.repo.Url, out var pluginKeys))
                 {
-                    var bestCandidate = GetBestCandidate(priorityCandidates);
-                    if (addedRepos.Add(bestCandidate.repo.Url))
-                    {
-                        result.Add(bestCandidate.repo);
-                    }
+                    pluginKeys = new HashSet<string>();
+                    selectedByRepo[occurrence.repo.Url] = pluginKeys;
                 }
-                else
-                {
-                    foreach (var (repo, _) in candidates)
-                    {
-                        if (addedRepos.Add(repo.Url))
-                        {
-                            result.Add(repo);
-                        }
-                    }
-                }
+
+                pluginKeys.Add(pluginGroup.Key);
             }
         }
+
+        var result = new List<RepoInfo>();
+        foreach (var repo in repos)
+        {
+            if (!selectedByRepo.TryGetValue(repo.Url, out var pluginKeys))
+            {
+                continue;
+            }
+
+            var filteredPlugins = repo.Plugins
+                .Where(plugin =>
+                {
+                    var pluginKey = !string.IsNullOrEmpty(plugin.InternalName) ? plugin.InternalName : plugin.Name;
+                    return !string.IsNullOrEmpty(pluginKey) && pluginKeys.Contains(pluginKey);
+                })
+                .ToList();
+
+            if (filteredPlugins.Count == 0)
+            {
+                continue;
+            }
+
+            result.Add(new RepoInfo(repo, filteredPlugins));
+        }
+
+        log.Debug($"Deduplication complete: {repos.Count} -> {result.Count} repos");
 
         return result;
     }
@@ -391,5 +432,25 @@ internal sealed class RepoManager : IDisposable
             .OrderByDescending(c => c.plugin.ApiLevel)
             .ThenByDescending(c => c.plugin.LastUpdate)
             .First();
+    }
+
+    private async Task UpdateRepoMasterTimestampAsync()
+    {
+        try
+        {
+            using var response = await httpClient.GetAsync(RepoMasterCommitApiUrl).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            var payload = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var date = (string?)JArray.Parse(payload).FirstOrDefault()?["commit"]?["committer"]?["date"];
+            if (DateTimeOffset.TryParse(date, out var parsed))
+            {
+                config.LastRemoteRepoListUpdatedUtc = parsed.ToUnixTimeSeconds();
+                config.Save();
+            }
+        }
+        catch (Exception ex)
+        {
+            log.Debug(ex, "Failed to fetch repo master commit metadata.");
+        }
     }
 }

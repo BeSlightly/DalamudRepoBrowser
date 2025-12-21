@@ -44,4 +44,18 @@ public sealed class RepoInfo
         IsDefaultBranch = true;
         BranchName = string.Empty;
     }
+
+    public RepoInfo(RepoInfo source, IReadOnlyList<PluginInfo> plugins)
+    {
+        Plugins = plugins;
+        Owner = source.Owner;
+        FullName = source.FullName;
+        Url = source.Url;
+        RawUrl = source.RawUrl;
+        GitRepoUrl = source.GitRepoUrl;
+        IsDefaultBranch = source.IsDefaultBranch;
+        BranchName = source.BranchName;
+        LastUpdated = Plugins.Count > 0 ? Plugins.Max(p => p.LastUpdate) : 0;
+        ApiLevel = Plugins.Count > 0 ? Plugins.Max(p => p.ApiLevel) : (byte)0;
+    }
 }

@@ -7,6 +7,8 @@ namespace DalamudRepoBrowser;
 
 public sealed class PluginInfo
 {
+    public string InternalName { get; }
+    public string Author { get; }
     public string Name { get; }
     public string Description { get; }
     public string Punchline { get; }
@@ -15,9 +17,12 @@ public sealed class PluginInfo
     public long LastUpdate { get; }
     public IReadOnlyList<string> Tags { get; }
     public IReadOnlyList<string> CategoryTags { get; }
+    public bool IsClosedSource { get; }
 
     public PluginInfo(JToken json)
     {
+        InternalName = (string?)json["InternalName"] ?? string.Empty;
+        Author = (string?)json["Author"] ?? string.Empty;
         Name = (string?)json["Name"] ?? string.Empty;
         Description = (string?)json["Description"] ?? string.Empty;
         Punchline = (string?)json["Punchline"] ?? string.Empty;
@@ -26,6 +31,7 @@ public sealed class PluginInfo
         LastUpdate = (long?)json["LastUpdate"] ?? 0;
         Tags = ParseStringList(json["Tags"]);
         CategoryTags = ParseStringList(json["CategoryTags"]);
+        IsClosedSource = json.Value<bool?>("is_closed_source") ?? false;
     }
 
     private static IReadOnlyList<string> ParseStringList(JToken? token)
