@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Dalamud.Interface.ImGuiNotification;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Newtonsoft.Json.Linq;
@@ -138,9 +139,26 @@ internal sealed class RepoManager : IDisposable
         config.Save();
 
         log.Debug("Cache timestamps cleared, forcing fresh fetch from remote sources");
-
-        _ = FetchPriorityReposAsync();
-        _ = FetchRepoListAsync(RepoMasterUrl);
+        
+        _ = Task.Run(async () =>
+        {
+            var pTask = FetchPriorityReposAsync();
+            var rTask = FetchRepoListAsync(RepoMasterUrl);
+            await Task.WhenAll(pTask, rTask).ConfigureAwait(false);
+            
+            var pUpdated = pTask.Result;
+            var rUpdated = rTask.Result;
+            
+            if (pUpdated || rUpdated)
+            {
+                Plugin.NotificationManager.AddNotification(new Notification
+                {
+                    Content = "Repository cache updated.",
+                    Title = "Repository Browser",
+                    Type = NotificationType.Success
+                });
+            }
+        });
     }
 
     private bool ShouldCheckRepoList()
@@ -197,9 +215,10 @@ internal sealed class RepoManager : IDisposable
         return Path.Combine(pluginInterface.ConfigDirectory.FullName, "priority-repos.json");
     }
 
-    private async Task FetchPriorityReposAsync()
+    private async Task<bool> FetchPriorityReposAsync()
     {
         log.Debug($"Fetching priority repositories from {PriorityReposUrl}");
+        var updated = false;
 
         try
         {
@@ -211,6 +230,7 @@ internal sealed class RepoManager : IDisposable
                 await File.WriteAllTextAsync(GetPriorityReposFilePath(), data).ConfigureAwait(false);
                 config.LastUpdatedPriorityRepos = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 config.Save();
+                updated = true;
             }
             else
             {
@@ -232,16 +252,19 @@ internal sealed class RepoManager : IDisposable
 
             config.Save();
             log.Debug($"Loaded {config.PriorityRepos.Count} priority repositories");
+            return updated;
         }
         catch (Exception ex)
         {
             log.Error(ex, $"Failed loading priority repositories from {PriorityReposUrl}");
+            return false;
         }
     }
 
-    private async Task FetchRepoListAsync(string repoMaster)
+    private async Task<bool> FetchRepoListAsync(string repoMaster)
     {
         log.Debug($"Fetching repositories from {repoMaster}");
+        var updated = false;
 
         var startedFetch = Volatile.Read(ref fetchId);
         try
@@ -256,6 +279,7 @@ internal sealed class RepoManager : IDisposable
                 await File.WriteAllTextAsync(GetReposFilePath(), data).ConfigureAwait(false);
                 config.LastUpdatedRepoList = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 config.Save();
+                updated = true;
             }
             else
             {
@@ -269,7 +293,7 @@ internal sealed class RepoManager : IDisposable
 
             if (Volatile.Read(ref fetchId) != startedFetch)
             {
-                return;
+                return updated;
             }
 
             log.Debug($"Fetched {repos.Count} repositories from {repoMaster}");
@@ -315,10 +339,12 @@ internal sealed class RepoManager : IDisposable
 
             repoList = deduplicatedRepos;
             Interlocked.Exchange(ref sortCountdown, 60);
+            return updated;
         }
         catch (Exception ex)
         {
             log.Error(ex, $"Failed loading repositories from {repoMaster}");
+            return false;
         }
     }
 

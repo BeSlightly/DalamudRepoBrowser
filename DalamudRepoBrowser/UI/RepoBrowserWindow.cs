@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
+using Dalamud.Interface.ImGuiNotification;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Windowing;
 
@@ -31,6 +32,9 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
     private static readonly Regex ChineseRegex = new(@"[\u4e00-\u9fff]", RegexOptions.Compiled);
     private static readonly Regex JapaneseRegex = new(@"[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf]", RegexOptions.Compiled);
     private static readonly Regex KoreanRegex = new(@"[\u1100-\u11ff\uac00-\ud7af]", RegexOptions.Compiled);
+
+    private string lastCopiedUrl = string.Empty;
+    private DateTime lastCopiedTime = DateTime.MinValue;
 
     public RepoBrowserWindow(RepoManager repoManager, Configuration config)
         : base("Repository Browser")
@@ -190,10 +194,15 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
 
             var seen = prevSeenRepos.Contains(repoInfo.Url);
 
-            if (ImGui.Button($"Copy Link##{repoInfo.Url}"))
+            var isJustCopied = lastCopiedUrl == repoInfo.Url && (DateTime.Now - lastCopiedTime).TotalSeconds < 2;
+            var copyButtonText = isJustCopied ? $"Copied!##{repoInfo.Url}" : $"Copy Link##{repoInfo.Url}";
+            
+            if (isJustCopied) ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.2f, 0.8f, 0.5f, 0.8f));
+            if (ImGui.Button(copyButtonText))
             {
-                ImGui.SetClipboardText(repoInfo.Url);
+                CopyUrl(repoInfo.Url);
             }
+            if (isJustCopied) ImGui.PopStyleColor();
 
             ImGui.SameLine();
 
@@ -1007,9 +1016,14 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                 ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(1f, 1f, 1f, 0.05f));
                 ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(1f, 1f, 1f, 0.1f));
                 
+                var isJustCopied = lastCopiedUrl == repoInfo.Url && (DateTime.Now - lastCopiedTime).TotalSeconds < 2;
+                var copyIcon = isJustCopied ? FontAwesomeIcon.Check : FontAwesomeIcon.Copy;
+                
                 ImGui.PushFont(UiBuilder.IconFont);
-                var copyPressed = ImGui.Button($"{FontAwesomeIcon.Copy.ToIconString()}##Copy{repoInfo.Url}", new Vector2(buttonWidth, 0));
+                if (isJustCopied) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.4f, 1f, 0.7f, 1f));
+                var copyPressed = ImGui.Button($"{copyIcon.ToIconString()}##Copy{repoInfo.Url}", new Vector2(buttonWidth, 0));
                 var copyHovered = ImGui.IsItemHovered();
+                if (isJustCopied) ImGui.PopStyleColor();
 
                 var openPressed = false;
                 var openHovered = false;
@@ -1030,7 +1044,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
 
                 if (copyPressed)
                 {
-                    ImGui.SetClipboardText(repoInfo.Url);
+                    CopyUrl(repoInfo.Url);
                 }
                 if (copyHovered)
                 {
@@ -1468,6 +1482,20 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         }
 
         return plugin.CategoryTags.Any(tag => tag.Equals(searchValue, StringComparison.CurrentCultureIgnoreCase));
+    }
+
+    private void CopyUrl(string url)
+    {
+        ImGui.SetClipboardText(url);
+        lastCopiedUrl = url;
+        lastCopiedTime = DateTime.Now;
+        
+        Plugin.NotificationManager.AddNotification(new Notification
+        {
+            Content = $"Copied to clipboard:\n{url}",
+            Title = "Repository Browser",
+            Type = NotificationType.Success
+        });
     }
 
     private static void OpenUrl(string url)
