@@ -1,6 +1,9 @@
 ﻿<Project Sdk="Dalamud.NET.Sdk/14.0.1">
     <PropertyGroup>
         <Version>2.0.3.7</Version>
+        <Description>Browse and add third party repositories in an instant.</Description>
+        <PackageProjectUrl>https://github.com/BeSlightly/DalamudRepoBrowser</PackageProjectUrl>
+        <IsPackable>false</IsPackable>
         <LangVersion>latest</LangVersion>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
