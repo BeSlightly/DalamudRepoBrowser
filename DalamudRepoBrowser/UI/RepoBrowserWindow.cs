@@ -338,7 +338,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         ImGui.Columns(2, string.Empty, false);
 
         var useModernUi = config.UseModernUi;
-        if (ImGui.Checkbox("Use Modern UI", ref useModernUi))
+        if (ImGui.Checkbox("Use new UI", ref useModernUi))
         {
             config.UseModernUi = useModernUi;
             save = true;
@@ -709,7 +709,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
 
             ImGui.TableSetColumnIndex(0);
             var useModernUi = config.UseModernUi;
-            if (ImGui.Checkbox("Use Modern UI", ref useModernUi))
+            if (ImGui.Checkbox("Use new UI", ref useModernUi))
             {
                 config.UseModernUi = useModernUi;
                 save = true;
