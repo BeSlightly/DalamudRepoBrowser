@@ -35,6 +35,15 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             MinimumSize = new Vector2(830, 570),
             MaximumSize = new Vector2(9999)
         };
+
+        TitleBarButtons.Add(new TitleBarButton
+        {
+            Icon = FontAwesomeIcon.SyncAlt,
+            IconOffset = new Vector2(1, 1),
+            Click = _ => repoManager.FetchRepoMasters(),
+            ShowTooltip = () => ImGui.SetTooltip("Refresh repositories")
+        });
+
     }
 
     public void Dispose()
@@ -60,30 +69,34 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             firstOpen = false;
         }
 
-        ImGui.SetWindowFontScale(0.85f);
-        if (AddHeaderIcon("RefreshRepoMaster", FontAwesomeIcon.SyncAlt.ToIconString()))
-        {
-            repoManager.FetchRepoMasters();
-        }
-        ImGui.SetWindowFontScale(1);
-
         ImGui.PushFont(UiBuilder.IconFont);
 
-        if (ImGui.Button(FontAwesomeIcon.Wrench.ToIconString()))
+        var settingsPressed = ImGui.Button(FontAwesomeIcon.Wrench.ToIconString());
+        var settingsHovered = ImGui.IsItemHovered();
+
+        ImGui.SameLine();
+
+        var sourcePressed = ImGui.Button(FontAwesomeIcon.Globe.ToIconString());
+        var sourceHovered = ImGui.IsItemHovered();
+
+        ImGui.PopFont();
+
+        if (settingsPressed)
         {
             openSettings = !openSettings;
         }
 
-        ImGui.SameLine();
+        if (settingsHovered)
+        {
+            ImGui.SetTooltip("Settings");
+        }
 
-        if (ImGui.Button(FontAwesomeIcon.Globe.ToIconString()))
+        if (sourcePressed)
         {
             OpenUrl("https://beslightly.github.io/Aetherfeed/");
         }
 
-        ImGui.PopFont();
-
-        if (ImGui.IsItemHovered())
+        if (sourceHovered)
         {
             ImGui.SetTooltip("Source");
         }
@@ -380,59 +393,6 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         }
 
         return plugin.CategoryTags.Any(tag => tag.Equals(searchValue, StringComparison.CurrentCultureIgnoreCase));
-    }
-
-    private static bool AddHeaderIcon(string id, string icon)
-    {
-        if (ImGui.IsWindowCollapsed())
-        {
-            return false;
-        }
-
-        var scale = ImGuiHelpers.GlobalScale;
-        var prevCursorPos = ImGui.GetCursorPos();
-        var buttonSize = new Vector2(20 * scale);
-        var buttonPos = new Vector2(
-            ImGui.GetWindowWidth() - buttonSize.X - 17 * scale - ImGui.GetStyle().FramePadding.X * 2,
-            2);
-        ImGui.SetCursorPos(buttonPos);
-        var drawList = ImGui.GetWindowDrawList();
-        drawList.PushClipRectFullScreen();
-
-        var pressed = false;
-        ImGui.InvisibleButton(id, buttonSize);
-        var itemMin = ImGui.GetItemRectMin();
-        var itemMax = ImGui.GetItemRectMax();
-        var halfSize = ImGui.GetItemRectSize() / 2;
-        var center = itemMin + halfSize;
-        if (ImGui.IsWindowHovered() && ImGui.IsMouseHoveringRect(itemMin, itemMax, false))
-        {
-            ImGui.GetWindowDrawList().AddCircleFilled(
-                center,
-                halfSize.X,
-                ImGui.GetColorU32(ImGui.IsMouseDown(ImGuiMouseButton.Left)
-                    ? ImGuiCol.ButtonActive
-                    : ImGuiCol.ButtonHovered));
-            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
-            {
-                pressed = true;
-            }
-        }
-
-        ImGui.SetCursorPos(buttonPos);
-        ImGui.PushFont(UiBuilder.IconFont);
-        drawList.AddText(
-            UiBuilder.IconFont,
-            ImGui.GetFontSize(),
-            itemMin + halfSize - ImGui.CalcTextSize(icon) / 2 + Vector2.One,
-            0xFFFFFFFF,
-            icon);
-        ImGui.PopFont();
-
-        ImGui.PopClipRect();
-        ImGui.SetCursorPos(prevCursorPos);
-
-        return pressed;
     }
 
     private static void OpenUrl(string url)
