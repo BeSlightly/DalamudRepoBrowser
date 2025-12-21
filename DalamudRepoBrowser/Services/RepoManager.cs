@@ -16,7 +16,7 @@ namespace DalamudRepoBrowser;
 
 internal sealed class RepoManager : IDisposable
 {
-    private const long CacheTtlMilliseconds = 86400000;
+    private const long CacheTtlMilliseconds = 21600000; // 6 hours
 
     public const string RepoMasterUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/plugins.json";
     public const string PriorityReposUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/priority-repos.json";
@@ -171,11 +171,8 @@ internal sealed class RepoManager : IDisposable
                 return true;
             }
 
-            var now = DateTimeOffset.UtcNow;
-            var lastUpdated = DateTimeOffset.FromUnixTimeMilliseconds(config.LastUpdatedRepoList);
-
-            return now.ToUnixTimeMilliseconds() >= config.LastUpdatedRepoList + CacheTtlMilliseconds
-                   || (now.Hour >= 8 && lastUpdated.Hour < 8);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return now >= config.LastUpdatedRepoList + CacheTtlMilliseconds;
         }
         catch
         {
@@ -193,11 +190,8 @@ internal sealed class RepoManager : IDisposable
                 return true;
             }
 
-            var now = DateTimeOffset.UtcNow;
-            var lastUpdated = DateTimeOffset.FromUnixTimeMilliseconds(config.LastUpdatedPriorityRepos);
-
-            return now.ToUnixTimeMilliseconds() >= config.LastUpdatedPriorityRepos + CacheTtlMilliseconds
-                   || (now.Hour >= 8 && lastUpdated.Hour < 8);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return now >= config.LastUpdatedPriorityRepos + CacheTtlMilliseconds;
         }
         catch
         {

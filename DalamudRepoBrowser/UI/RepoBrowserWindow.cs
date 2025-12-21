@@ -33,6 +33,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
     private static readonly Regex JapaneseRegex = new(@"[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf]", RegexOptions.Compiled);
     private static readonly Regex KoreanRegex = new(@"[\u1100-\u11ff\uac00-\ud7af]", RegexOptions.Compiled);
 
+    private const long CacheTtlMilliseconds = 21600000; // 6 hours
     private string lastCopiedUrl = string.Empty;
     private DateTime lastCopiedTime = DateTime.MinValue;
 
@@ -1293,27 +1294,36 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
 
         var remoteUpdated = DateTimeOffset.FromUnixTimeSeconds(config.LastRemoteRepoListUpdatedUtc).ToLocalTime();
         var nextUpdate = remoteUpdated.AddHours(6);
-        var now = DateTimeOffset.Now;
+        var now = uiOpenedAt;
         var nextText = GetApproximateNextUpdateText(nextUpdate, now);
         return $"Aetherfeed updated {remoteUpdated:MMM dd, yyyy HH:mm} • {nextText}";
     }
 
     private static string GetApproximateNextUpdateText(DateTimeOffset nextUpdate, DateTimeOffset now)
     {
-        if (nextUpdate <= now)
+        var remaining = nextUpdate - now;
+        if (remaining.TotalSeconds <= 0)
         {
             return "Next update soon";
         }
 
-        var remaining = nextUpdate - now;
-        if (remaining.TotalDays >= 1)
+        if (remaining.TotalHours >= 24)
         {
             var days = (int)Math.Ceiling(remaining.TotalDays);
             return $"Next update in ~{days}d";
         }
 
-        var hours = (int)Math.Ceiling(remaining.TotalHours);
-        return $"Next update in ~{hours}h";
+        if (remaining.TotalHours >= 1)
+        {
+            var hours = (int)Math.Floor(remaining.TotalHours);
+            var mins = remaining.Minutes;
+            return mins > 0 
+                ? $"Next update in ~{hours}h {mins}m"
+                : $"Next update in ~{hours}h";
+        }
+
+        var minutes = (int)Math.Ceiling(remaining.TotalMinutes);
+        return $"Next update in ~{minutes}m";
     }
 
     private static string GetRelativeTimeText(DateTimeOffset timestamp, DateTimeOffset reference)
