@@ -1,11 +1,38 @@
-## Fork of DalamudRepoBrowser
+<div align="center">
+  <img src="images/logo.png" alt="DalamudRepoBrowser Logo" width="150" />
+  <h1>Dalamud Repo Browser</h1>
+  <p>Browse and add third-party repositories to Dalamud with <code>/xlrepos</code>.</p>
+  <p>Fork of the original <a href="https://github.com/UnknownX7/DalamudRepoBrowser">DalamudRepoBrowser by UnknownX7</a>.</p>
 
-This is a fork of the [original DalamudRepoBrowser plugin by UnknownX7](https://github.com/UnknownX7/DalamudRepoBrowser). It's updated to API13 and now uses Aetherfeed's plugins.json, which regenerates every 6 hours.
+  <!-- Badges -->
+  <a href="https://github.com/BeSlightly/DalamudRepoBrowser/releases"><img src="https://img.shields.io/github/v/release/BeSlightly/DalamudRepoBrowser?style=for-the-badge&color=blue" alt="Latest Release"></a>
+  <a href="https://raw.githubusercontent.com/BeSlightly/DalamudRepoBrowser/master/repo.json"><img src="https://img.shields.io/badge/-Plugin_Repo-blue?style=for-the-badge" alt="Custom Repo"></a>
+</div>
 
-A simple interface to quickly see and add third party repositories. Utilizes [Aetherfeed's plugins.json](https://github.com/BeSlightly/Aetherfeed/blob/main/public/data/plugins.json).
+---
 
-Also see [Aetherfeed](https://beslightly.github.io/Aetherfeed/).
+## 📖 What is it?
 
-For use with [FFXIVQuickLauncher](https://github.com/goatcorp/FFXIVQuickLauncher).
+**Dalamud Repo Browser** provides a clean, searchable interface for finding and adding third-party plugin repositories. It automatically pulls from [**Aetherfeed**](https://beslightly.github.io/Aetherfeed/), a repository masterlist that regenerates every 6 hours, ensuring you always have access to the latest community plugins.
 
-Repo URL: `https://github.com/BeSlightly/DalamudRepoBrowser/raw/refs/heads/master/repo.json`
+Simply type `/xlrepos` in-game to browse, search, and toggle repositories instantly.
+
+---
+
+## 📥 Installation
+
+Add this custom repo to Dalamud:
+
+```
+https://github.com/BeSlightly/DalamudRepoBrowser/raw/refs/heads/master/repo.json
+```
+
+---
+
+### 🖼️ Screenshots
+
+<div align="center">
+  <img src="images/preview_old.png" alt="Old UI" width="48%" />
+  <img src="images/preview_new.png" alt="New UI" width="48%" />
+  <p><em>Comparison: Legacy UI (Left) vs. New UI (Right)</em></p>
+</div>
