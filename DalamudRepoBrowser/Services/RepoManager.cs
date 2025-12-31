@@ -394,7 +394,12 @@ internal sealed class RepoManager : IDisposable
             var deduplicatedOccurrences = new List<(RepoInfo repo, PluginInfo plugin)>();
             foreach (var developerGroup in occurrencesByDeveloper.Values)
             {
-                deduplicatedOccurrences.Add(GetBestCandidate(developerGroup));
+                var hasPriorityOccurrence = developerGroup.Any(occurrence =>
+                    config.PriorityRepos.Contains(occurrence.repo.Url));
+                var candidates = hasPriorityOccurrence
+                    ? developerGroup.Where(occurrence => config.PriorityRepos.Contains(occurrence.repo.Url)).ToList()
+                    : developerGroup;
+                deduplicatedOccurrences.Add(GetBestCandidate(candidates));
             }
 
             var priorityCandidates = deduplicatedOccurrences
