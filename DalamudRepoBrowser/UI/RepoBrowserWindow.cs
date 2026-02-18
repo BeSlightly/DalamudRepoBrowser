@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
-using System.Text.RegularExpressions;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
@@ -29,13 +28,26 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
     private string searchText = string.Empty;
     private uint filteredCount;
     private DateTimeOffset uiOpenedAt;
-    private static readonly Regex ChineseRegex = new(@"[\u4e00-\u9fff]", RegexOptions.Compiled);
-    private static readonly Regex JapaneseRegex = new(@"[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf]", RegexOptions.Compiled);
-    private static readonly Regex KoreanRegex = new(@"[\u1100-\u11ff\uac00-\ud7af]", RegexOptions.Compiled);
+    private bool enabledReposInitialized;
+    private IReadOnlyList<RepoInfo>? enabledReposSource;
+    private DateTimeOffset lastEnabledRefresh = DateTimeOffset.MinValue;
+    private const int EnabledRefreshIntervalMs = 1500;
+    private IReadOnlyList<RepoInfo>? modernCacheRepos;
+    private bool modernCacheValid;
+    private bool modernCacheShowOutdated;
+    private bool modernCacheHideNonEnglish;
+    private bool modernCacheHideClosedSource;
+    private int modernCacheApiLevel;
+    private DateTimeOffset modernCacheUiOpenedAt;
+    private float modernTextScale = -1f;
+    private readonly Dictionary<RepoInfo, ModernRepoCache> modernRepoCache = new();
+    private readonly Dictionary<PluginInfo, float> pluginTextWidthCache = new();
 
-    private const long CacheTtlMilliseconds = 21600000; // 6 hours
     private string lastCopiedUrl = string.Empty;
     private DateTime lastCopiedTime = DateTime.MinValue;
+
+    private const string ModernHeaderTitle = "Aetherfeed Browser";
+    private const string ModernHeaderSubtitle = "Discover repositories automatically scraped from GitHub";
 
     public RepoBrowserWindow(RepoManager repoManager, Configuration config)
         : base("Repository Browser")
@@ -79,6 +91,8 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         if (repoManager.TryConsumeSortCountdown())
         {
             enabledRepos = repoManager.SortAndUpdateSeen(prevSeenRepos);
+            enabledReposInitialized = true;
+            enabledReposSource = repoManager.RepoList;
         }
 
         if (firstOpen)
@@ -88,6 +102,19 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         }
 
         var repos = repoManager.RepoList;
+        if (enabledReposInitialized && !ReferenceEquals(enabledReposSource, repos))
+        {
+            enabledReposInitialized = false;
+            enabledReposSource = null;
+            enabledRepos.Clear();
+        }
+
+        if (!ReferenceEquals(modernCacheRepos, repos))
+        {
+            modernCacheValid = false;
+        }
+
+        MaybeRefreshEnabledRepos(repos);
 
         if (config.UseModernUi)
         {
@@ -446,7 +473,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
     private void DrawModernHeader()
     {
         var scale = ImGuiHelpers.GlobalScale;
-        var headerHeight = 112f * scale;
+        var headerHeight = 118f * scale;
         var padding = 18f * scale;
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(0, 0));
@@ -459,13 +486,23 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         var windowPos = ImGui.GetWindowPos();
         var windowSize = ImGui.GetWindowSize();
         var drawList = ImGui.GetWindowDrawList();
+        DrawModernHeaderAurora(windowPos, windowSize, drawList, padding, scale);
 
-        // Aetherfeed-inspired gradient: deep void to vibrant cyan
-        var leftColor = new Vector4(0.012f, 0.024f, 0.05f, 1f);   // Deep void-950
-        var midColor = new Vector4(0.02f, 0.08f, 0.16f, 1f);      // Void-900 blend
-        var rightColor = new Vector4(0.024f, 0.45f, 0.65f, 1f);   // Vibrant aether-500
+        ImGui.EndChild();
+        ImGui.PopStyleVar();
+    }
 
-        // Main gradient background
+    private void DrawModernHeaderAurora(
+        Vector2 windowPos,
+        Vector2 windowSize,
+        ImDrawListPtr drawList,
+        float padding,
+        float scale)
+    {
+        var leftColor = new Vector4(0.012f, 0.024f, 0.05f, 1f);
+        var midColor = new Vector4(0.02f, 0.08f, 0.16f, 1f);
+        var rightColor = new Vector4(0.024f, 0.45f, 0.65f, 1f);
+
         drawList.AddRectFilledMultiColor(
             windowPos,
             new Vector2(windowPos.X + windowSize.X, windowPos.Y + windowSize.Y),
@@ -474,7 +511,21 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             ImGui.GetColorU32(new Vector4(rightColor.X * 0.7f, rightColor.Y * 0.7f, rightColor.Z * 0.7f, 1f)),
             ImGui.GetColorU32(midColor));
 
-        // Subtle top shine/glow effect
+        var glowMin = windowPos;
+        var glowMax = new Vector2(windowPos.X + windowSize.X, windowPos.Y + windowSize.Y * 0.75f);
+        drawList.AddRectFilledMultiColor(
+            glowMin,
+            glowMax,
+            ImGui.GetColorU32(new Vector4(0.3f, 0.7f, 0.95f, 0.2f)),
+            ImGui.GetColorU32(new Vector4(0.1f, 0.4f, 0.7f, 0.05f)),
+            ImGui.GetColorU32(new Vector4(0.1f, 0.4f, 0.7f, 0f)),
+            ImGui.GetColorU32(new Vector4(0.1f, 0.4f, 0.7f, 0f)));
+
+        var accentWidth = 4f * scale;
+        var accentMin = new Vector2(windowPos.X + padding, windowPos.Y + padding);
+        var accentMax = new Vector2(windowPos.X + padding + accentWidth, windowPos.Y + windowSize.Y - padding);
+        drawList.AddRectFilled(accentMin, accentMax, ImGui.GetColorU32(new Vector4(0.4f, 0.85f, 0.95f, 0.7f)));
+
         var shineHeight = 3f * scale;
         drawList.AddRectFilledMultiColor(
             windowPos,
@@ -484,35 +535,72 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             ImGui.GetColorU32(new Vector4(0.4f, 0.8f, 0.95f, 0f)),
             ImGui.GetColorU32(new Vector4(0.4f, 0.8f, 0.95f, 0f)));
 
-        // Bottom border with glow
         drawList.AddLine(
             new Vector2(windowPos.X, windowPos.Y + windowSize.Y - 1),
             new Vector2(windowPos.X + windowSize.X, windowPos.Y + windowSize.Y - 1),
             ImGui.GetColorU32(new Vector4(0.4f, 0.85f, 0.95f, 0.25f)),
             2f * scale);
 
-        ImGui.SetCursorPos(new Vector2(padding, padding));
-        ImGui.SetWindowFontScale(1.35f);
+        var separatorHeight = 6f * scale;
+        var separatorMin = new Vector2(windowPos.X, windowPos.Y + windowSize.Y - separatorHeight);
+        var separatorMax = new Vector2(windowPos.X + windowSize.X, windowPos.Y + windowSize.Y);
+        drawList.AddRectFilledMultiColor(
+            separatorMin,
+            separatorMax,
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.35f)),
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.35f)),
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0f)),
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0f)));
 
-        // Title with subtle glow effect simulation
-        var titlePos = ImGui.GetCursorScreenPos();
-        ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), "Dalamud Repo Browser");
+        var textX = padding + accentWidth + (10f * scale);
+        var textY = padding + (4f * scale);
+        ImGui.SetCursorPos(new Vector2(textX, textY));
+        ImGui.SetWindowFontScale(1.45f);
+        var titleHeight = ImGui.GetTextLineHeight();
+        ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), ModernHeaderTitle);
+
+        ImGui.SetWindowFontScale(0.95f);
+        var subtitleY = textY + titleHeight + (8f * scale);
+        ImGui.SetCursorPos(new Vector2(textX, subtitleY));
+        var subtitleHeight = ImGui.GetTextLineHeight();
+        ImGui.TextColored(new Vector4(0.65f, 0.88f, 0.98f, 0.9f), ModernHeaderSubtitle);
+
+        ImGui.SetWindowFontScale(0.9f);
+        ImGui.SetCursorPos(new Vector2(textX, subtitleY + subtitleHeight + (6f * scale)));
+        ImGui.TextColored(new Vector4(0.55f, 0.78f, 0.9f, 0.75f), GetRemoteUpdateStatusText());
         ImGui.SetWindowFontScale(1f);
 
-        // Subtitle with aether accent
-        ImGui.TextColored(new Vector4(0.6f, 0.85f, 0.95f, 0.85f), "Discover repositories automatically scraped from GitHub");
-        ImGui.TextColored(new Vector4(0.5f, 0.75f, 0.9f, 0.7f), GetRemoteUpdateStatusText());
+        DrawModernHeaderButtons(
+            windowSize,
+            padding,
+            scale,
+            new Vector4(0.1f, 0.2f, 0.35f, 0.5f),
+            new Vector4(0.15f, 0.5f, 0.7f, 0.7f),
+            new Vector4(0.1f, 0.6f, 0.8f, 0.9f),
+            12f * scale);
+    }
 
+
+    private void DrawModernHeaderButtons(
+        Vector2 windowSize,
+        float padding,
+        float scale,
+        Vector4 baseColor,
+        Vector4 hoverColor,
+        Vector4 activeColor,
+        float rounding)
+    {
         var buttonSize = new Vector2(34f * scale, 34f * scale);
         var buttonGap = 8f * scale;
         var rightGroupWidth = (buttonSize.X * 2) + buttonGap;
         ImGui.SetCursorPos(new Vector2(windowSize.X - rightGroupWidth - padding, padding));
 
-        // Button styling with glassmorphism effect
-        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 12f * scale);
-        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.1f, 0.2f, 0.35f, 0.5f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.15f, 0.5f, 0.7f, 0.7f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.1f, 0.6f, 0.8f, 0.9f));
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, rounding);
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 1f * scale);
+        ImGui.PushStyleColor(ImGuiCol.Button, baseColor);
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, hoverColor);
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, activeColor);
+        ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.3f, 0.55f, 0.8f, 0.45f));
 
         ImGui.PushFont(UiBuilder.IconFont);
         var settingsPressed = ImGui.Button($"{FontAwesomeIcon.Wrench.ToIconString()}##ModernSettings", buttonSize);
@@ -541,11 +629,8 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             ImGui.SetTooltip("View on Aetherfeed");
         }
 
-        ImGui.PopStyleColor(3);
-        ImGui.PopStyleVar();
-
-        ImGui.EndChild();
-        ImGui.PopStyleVar();
+        ImGui.PopStyleColor(4);
+        ImGui.PopStyleVar(2);
     }
 
     private void DrawModernFilterBar(IReadOnlyList<RepoInfo> repos)
@@ -583,15 +668,18 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         {
             UpdateSearchResults(repos);
         }
-        
+
+        var inputHeight = ImGui.GetFrameHeight();
         ImGui.PopStyleVar(); // FrameRounding
         ImGui.PopStyleColor(); // FrameBg
 
         var statusText = $"{filteredCount} repositories shown";
         var statusSize = ImGui.CalcTextSize(statusText);
-        var textColor = ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
-        ImGui.SameLine(ImGui.GetWindowContentRegionMax().X - statusSize.X - padding);
-        
+        var statusX = ImGui.GetWindowContentRegionMax().X - statusSize.X - padding;
+        ImGui.SameLine(statusX);
+        var statusY = ImGui.GetCursorPosY() + (inputHeight - statusSize.Y) * 0.5f;
+        ImGui.SetCursorPosY(statusY);
+
         // Aether blue text for the counter
         ImGui.TextColored(new Vector4(0.4f, 0.7f, 0.9f, 0.8f), statusText);
 
@@ -768,7 +856,6 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             save = true;
         }
 
-        ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();
 
@@ -804,6 +891,8 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
 
     private void DrawModernRepoList(IReadOnlyList<RepoInfo> repos)
     {
+        EnsureModernCache(repos);
+
         var scale = ImGuiHelpers.GlobalScale;
         var padding = 16f * scale;
         var sectionSpacing = 6f * scale;
@@ -812,6 +901,11 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         var rounding = 16f * scale;
         var chipRounding = 4f * scale;
         var borderThickness = 1f * scale;
+        var cardSpacing = 12f * scale;
+        var headerSpacingExtra = 2f * scale;
+        var chipsBottomPadding = 6f * scale;
+        var accentWidth = 6f * scale;
+        var accentGap = 8f * scale;
 
         var textColor = ImGui.GetStyle().Colors[(int)ImGuiCol.Text];
         var mutedText = new Vector4(textColor.X, textColor.Y, textColor.Z, 0.6f);
@@ -823,7 +917,20 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
 
         ImGui.BeginChild("RepoListModern");
 
+        var listWidth = ImGui.GetContentRegionAvail().X;
+
+        if (modernTextScale != scale)
+        {
+            pluginTextWidthCache.Clear();
+            modernTextScale = scale;
+        }
+
         filteredCount = 0;
+        var entries = new List<ModernVisibleRepoEntry>(repos.Count);
+        var startOffsets = new List<float>(repos.Count);
+        var endOffsets = new List<float>(repos.Count);
+        var runningY = 0f;
+
         foreach (var repoInfo in repos)
         {
             if (config.MaxPlugins < 50 && config.MaxPlugins < repoInfo.Plugins.Count)
@@ -836,19 +943,15 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                 continue;
             }
 
-            var enabled = repoManager.GetRepoEnabled(repoInfo.Url) || repoManager.GetRepoEnabled(repoInfo.RawUrl);
-            if (enabled && config.HideEnabledRepos && enabledRepos.Contains(repoInfo))
+            var enabled = enabledReposInitialized
+                ? enabledRepos.Contains(repoInfo)
+                : repoManager.GetRepoEnabled(repoInfo.Url) || repoManager.GetRepoEnabled(repoInfo.RawUrl);
+            if (enabled && config.HideEnabledRepos)
             {
                 continue;
             }
 
-            var visiblePlugins = repoInfo.Plugins
-                .Select(plugin => (plugin, valid: IsPluginCurrentOrUnknown(plugin)))
-                .Where(plugin => (config.ShowOutdatedPlugins || plugin.valid)
-                                 && PluginPassesLanguageFilter(plugin.plugin)
-                                 && PluginPassesClosedSourceFilter(plugin.plugin))
-                .ToList();
-            if (visiblePlugins.Count == 0)
+            if (!modernRepoCache.TryGetValue(repoInfo, out var cache) || cache.Plugins.Count == 0)
             {
                 continue;
             }
@@ -857,54 +960,75 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
 
             var seen = prevSeenRepos.Contains(repoInfo.Url);
             var isPriority = config.PriorityRepos.Contains(repoInfo.Url);
-            var accentWidth = 6f * scale;
-            var accentInset = 0f;
-            var accentGap = 8f * scale;
             var hasAccent = enabled || !seen;
             var accentOffset = hasAccent ? (accentWidth + accentGap) : 0f;
 
-            var lineHeight = ImGui.GetTextLineHeightWithSpacing();
-            var singleChipHeight = ImGui.GetTextLineHeight() + (chipPadding.Y * 2);
-            
-            // Calculate height required for chips
-            var chipsHeight = 0f;
-            if (visiblePlugins.Count > 0)
+            var availWidth = listWidth - (padding * 2) - accentOffset;
+            if (availWidth < 1f)
             {
-                var availWidth = ImGui.GetContentRegionAvail().X - (padding * 2) - accentOffset;
-                var currentX = 0f;
-                var rows = 1;
-                
-                for (var i = 0; i < visiblePlugins.Count; i++)
-                {
-                    var plugin = visiblePlugins[i].plugin;
-                    var chipWidth = ImGui.CalcTextSize(plugin.Name).X + (chipPadding.X * 2);
-                    
-                    if (i > 0)
-                    {
-                        // Add spacing
-                        currentX += rowSpacing;
-                    }
-
-                    if (currentX + chipWidth > availWidth)
-                    {
-                        // Wrap
-                        rows++;
-                        currentX = 0;
-                    }
-                    
-                    currentX += chipWidth;
-                }
-                
-                chipsHeight = (rows * singleChipHeight) + ((rows - 1) * rowSpacing);
+                availWidth = 1f;
             }
 
-            var cardHeight = (padding * 2)
-                             + (lineHeight * 2.2f) // More header space
-                             + (sectionSpacing * 2)
-                             + chipsHeight;
+            UpdateRepoLayout(cache, availWidth, scale, padding, sectionSpacing, headerSpacingExtra, chipsBottomPadding, rowSpacing, chipPadding, enabled);
+
+            entries.Add(new ModernVisibleRepoEntry(repoInfo, cache, enabled, seen, isPriority, accentOffset, cache.CardHeight));
+            startOffsets.Add(runningY);
+            runningY += cache.CardHeight + cardSpacing;
+            endOffsets.Add(runningY);
+        }
+
+        if (entries.Count == 0)
+        {
+            ImGui.EndChild();
+            return;
+        }
+
+        var scrollY = ImGui.GetScrollY();
+        var viewHeight = ImGui.GetWindowHeight();
+        var overscan = 200f * scale;
+        var viewTop = MathF.Max(0f, scrollY - overscan);
+        var viewBottom = scrollY + viewHeight + overscan;
+
+        var startIndex = LowerBound(endOffsets, viewTop + 0.001f);
+        if (startIndex >= entries.Count)
+        {
+            ImGui.Dummy(new Vector2(0, runningY));
+            ImGui.EndChild();
+            return;
+        }
+
+        var endExclusive = LowerBound(startOffsets, viewBottom);
+        var endIndex = Math.Max(startIndex, endExclusive - 1);
+        if (endIndex >= entries.Count)
+        {
+            endIndex = entries.Count - 1;
+        }
+
+        var topPadding = startOffsets[startIndex];
+        if (topPadding > 0f)
+        {
+            ImGui.Dummy(new Vector2(0, topPadding));
+        }
+
+        for (var index = startIndex; index <= endIndex; index++)
+        {
+            var entry = entries[index];
+            var repoInfo = entry.Repo;
+            var cache = entry.Cache;
+            var enabled = entry.Enabled;
+            var seen = entry.Seen;
+            var isPriority = entry.IsPriority;
+            var accentOffset = entry.AccentOffset;
+            var hasAccent = accentOffset > 0f;
+
+            var availWidth = listWidth - (padding * 2) - accentOffset;
+            if (availWidth < 1f)
+            {
+                availWidth = 1f;
+            }
 
             var cardStart = ImGui.GetCursorScreenPos();
-            var cardSize = new Vector2(ImGui.GetContentRegionAvail().X, cardHeight);
+            var cardSize = new Vector2(listWidth, entry.CardHeight);
             var drawList = ImGui.GetWindowDrawList();
 
             // Detect Hover for interaction
@@ -915,29 +1039,40 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             var currentBorder = isHovered ? new Vector4(0.3f, 0.5f, 0.8f, 0.5f) : cardBorder;
             var currentBorderThickness = isHovered ? 1.5f * scale : borderThickness;
 
+            if (isHovered)
+            {
+                var shadowOffset = new Vector2(0f, 1.5f * scale);
+                drawList.AddRectFilled(
+                    cardStart + shadowOffset,
+                    cardStart + cardSize + shadowOffset,
+                    ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.22f)),
+                    rounding);
+            }
+
             // Card Background
             drawList.AddRectFilled(cardStart, cardStart + cardSize, ImGui.GetColorU32(currentBg), rounding);
 
-            // Card Border
-            drawList.AddRect(cardStart, cardStart + cardSize, ImGui.GetColorU32(currentBorder), rounding, 0, currentBorderThickness);
-
-            // Left vertical accent strip
+            // Left vertical accent strip (clip a rounded rect to match card corners)
             var accentColor = enabled
                 ? new Vector4(0.2f, 0.8f, 0.5f, 0.8f) // Emerald for enabled
                 : (!seen ? new Vector4(0.06f, 0.7f, 1f, 0.8f) : new Vector4(0f, 0f, 0f, 0f)); // Cyan for new
 
             if (hasAccent)
             {
-                var accentMin = new Vector2(cardStart.X - currentBorderThickness, cardStart.Y + accentInset);
-                var accentMax = new Vector2(cardStart.X + accentWidth, cardStart.Y + cardSize.Y - accentInset);
-                var accentRounding = rounding;
+                var accentClipMin = cardStart;
+                var accentClipMax = new Vector2(cardStart.X + accentWidth, cardStart.Y + cardSize.Y);
+                drawList.PushClipRect(accentClipMin, accentClipMax, true);
                 drawList.AddRectFilled(
-                    accentMin,
-                    accentMax,
+                    cardStart,
+                    cardStart + cardSize,
                     ImGui.GetColorU32(accentColor),
-                    accentRounding,
+                    rounding,
                     ImDrawFlags.RoundCornersLeft);
+                drawList.PopClipRect();
             }
+
+            // Card Border (draw last so it stays crisp)
+            drawList.AddRect(cardStart, cardStart + cardSize, ImGui.GetColorU32(currentBorder), rounding, 0, currentBorderThickness);
 
             ImGui.Dummy(cardSize);
 
@@ -947,7 +1082,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             ImGui.Indent(contentPaddingX);
 
             // Using columns for layout
-            if (ImGui.BeginTable($"Header##{repoInfo.Url}", 2, ImGuiTableFlags.SizingStretchProp))
+            if (ImGui.BeginTable("Header", 2, ImGuiTableFlags.SizingStretchProp))
             {
                 ImGui.TableSetupColumn("Main", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 200f * scale);
@@ -985,8 +1120,9 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                 ImGui.TableSetColumnIndex(1);
 
                 var toggleWidth = 45f * scale; // Approximate width of toggle
-                var buttonWidth = 30f * scale;
-                var totalActionsWidth = toggleWidth + (buttonWidth * 2) + (ImGui.GetStyle().ItemSpacing.X * 2);
+                var actionButtonSize = 32f * scale;
+                var actionButton = new Vector2(actionButtonSize, 0f);
+                var totalActionsWidth = toggleWidth + (actionButtonSize * 2) + (ImGui.GetStyle().ItemSpacing.X * 2);
                 
                 // Right align within the column
                 var columnWidth = ImGui.GetColumnWidth();
@@ -995,7 +1131,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                     ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (columnWidth - totalActionsWidth));
                 }
 
-                if (DrawCustomToggle($"##Enabled{repoInfo.Url}", ref enabled, scale))
+                if (DrawCustomToggle("##Enabled", ref enabled, scale))
                 {
                     repoManager.ToggleRepo(repoManager.HasRepo(repoInfo.RawUrl) ? repoInfo.RawUrl : repoInfo.Url);
                     if (enabled)
@@ -1023,7 +1159,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                 
                 ImGui.PushFont(UiBuilder.IconFont);
                 if (isJustCopied) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.4f, 1f, 0.7f, 1f));
-                var copyPressed = ImGui.Button($"{copyIcon.ToIconString()}##Copy{repoInfo.Url}", new Vector2(buttonWidth, 0));
+                var copyPressed = ImGui.Button($"{copyIcon.ToIconString()}##Copy", actionButton);
                 var copyHovered = ImGui.IsItemHovered();
                 if (isJustCopied) ImGui.PopStyleColor();
 
@@ -1032,14 +1168,14 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                 if (!string.IsNullOrEmpty(repoInfo.GitRepoUrl))
                 {
                     ImGui.SameLine();
-                    openPressed = ImGui.Button($"{FontAwesomeIcon.Globe.ToIconString()}##Open{repoInfo.Url}", new Vector2(buttonWidth, 0));
+                    openPressed = ImGui.Button($"{FontAwesomeIcon.Globe.ToIconString()}##Open", actionButton);
                     openHovered = ImGui.IsItemHovered();
                 }
                 else
                 {
                     // Placeholder dummy to keep alignment consistent if globe is missing
                     ImGui.SameLine();
-                    ImGui.Dummy(new Vector2(buttonWidth, 0));
+                    ImGui.Dummy(actionButton);
                 }
 
                 ImGui.PopFont();
@@ -1065,46 +1201,22 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                 ImGui.PopStyleVar();
 
                 ImGui.EndTable();
-                ImGui.Dummy(new Vector2(0, sectionSpacing));
+                ImGui.Dummy(new Vector2(0, sectionSpacing + headerSpacingExtra));
             }
 
-            var infoParts = new List<string>();
-            if (!string.IsNullOrEmpty(repoInfo.Owner))
-            {
-                infoParts.Add($"Owner: {repoInfo.Owner}");
-            }
-
-            infoParts.Add($"Plugins: {repoInfo.Plugins.Count}");
-
-            if (!repoInfo.IsDefaultBranch && !string.IsNullOrEmpty(repoInfo.BranchName))
-            {
-                infoParts.Add($"Branch: {repoInfo.BranchName}");
-            }
-
-            DateTimeOffset? lastUpdated = repoInfo.LastUpdated > 0
-                ? DateTimeOffset.FromUnixTimeSeconds(repoInfo.LastUpdated).ToLocalTime()
-                : null;
-            if (lastUpdated.HasValue)
-            {
-                var relative = GetRelativeTimeText(lastUpdated.Value, uiOpenedAt);
-                infoParts.Add($"Updated: {relative} ({lastUpdated.Value:MMM dd, yyyy HH:mm})");
-            }
-            else
-            {
-                infoParts.Add("Updated: Unknown");
-            }
-
-            ImGui.TextColored(mutedText, string.Join("  •  ", infoParts));
+            ImGui.TextColored(mutedText, cache.InfoText);
             ImGui.Dummy(new Vector2(0, sectionSpacing));
 
             // Draw Chips with proper wrapping
-            var chipAvailWidth = ImGui.GetContentRegionAvail().X;
+            var chipAvailWidth = availWidth;
             var chipCurrentX = 0f;
             var isFirstChip = true;
 
-            foreach (var (plugin, valid) in visiblePlugins)
+            foreach (var pluginEntry in cache.Plugins)
             {
-                var chipWidth = ImGui.CalcTextSize(plugin.Name).X + (chipPadding.X * 2);
+                var plugin = pluginEntry.Plugin;
+                var textWidth = GetPluginTextWidth(plugin);
+                var chipWidth = textWidth + (chipPadding.X * 2);
                 
                 if (!isFirstChip)
                 {
@@ -1121,15 +1233,23 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                     }
                 }
 
-                DrawPluginChip(plugin, valid, chipPadding, scale, chipRounding);
+                DrawPluginChip(plugin, pluginEntry.IsValid, textWidth, chipPadding, scale, chipRounding);
                 chipCurrentX += chipWidth;
                 isFirstChip = false;
             }
 
+            ImGui.Dummy(new Vector2(0, chipsBottomPadding));
+
             ImGui.Unindent(contentPaddingX);
             ImGui.PopID();
 
-            ImGui.SetCursorScreenPos(new Vector2(cardStart.X, cardStart.Y + cardSize.Y + (12f * scale)));
+            ImGui.SetCursorScreenPos(new Vector2(cardStart.X, cardStart.Y + cardSize.Y + cardSpacing));
+        }
+
+        var bottomPadding = runningY - endOffsets[endIndex];
+        if (bottomPadding > 0f)
+        {
+            ImGui.Dummy(new Vector2(0, bottomPadding));
         }
 
         ImGui.EndChild();
@@ -1138,13 +1258,14 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
     private void DrawPluginChip(
         PluginInfo plugin,
         bool valid,
+        float textWidth,
         Vector2 padding,
         float scale,
         float chipRounding)
     {
         var drawList = ImGui.GetWindowDrawList();
-        var textSize = ImGui.CalcTextSize(plugin.Name);
-        var chipSize = new Vector2(textSize.X + (padding.X * 2), textSize.Y + (padding.Y * 2));
+        var textHeight = ImGui.GetTextLineHeight();
+        var chipSize = new Vector2(textWidth + (padding.X * 2), textHeight + (padding.Y * 2));
 
         ImGui.Dummy(chipSize);
         var rectMin = ImGui.GetItemRectMin();
@@ -1156,8 +1277,8 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
         // Default: Dark transparent
         // Hover: Brighter blueish
         var fillColor = valid
-            ? (hovered ? new Vector4(0.2f, 0.4f, 0.6f, 0.4f) : new Vector4(1f, 1f, 1f, 0.05f))
-            : new Vector4(0.75f, 0.22f, 0.22f, 0.15f);
+            ? (hovered ? new Vector4(0.2f, 0.4f, 0.6f, 0.32f) : new Vector4(1f, 1f, 1f, 0.03f))
+            : new Vector4(0.75f, 0.22f, 0.22f, 0.12f);
 
         drawList.AddRectFilled(rectMin, rectMax, ImGui.GetColorU32(fillColor), chipRounding);
         
@@ -1204,6 +1325,257 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
                 OpenUrl(plugin.RepoUrl);
             }
         }
+    }
+
+    private void EnsureModernCache(IReadOnlyList<RepoInfo> repos)
+    {
+        var apiLevel = repoManager.CurrentApiLevel;
+        if (modernCacheValid
+            && ReferenceEquals(modernCacheRepos, repos)
+            && modernCacheShowOutdated == config.ShowOutdatedPlugins
+            && modernCacheHideNonEnglish == config.HideNonEnglishPlugins
+            && modernCacheHideClosedSource == config.HideClosedSourcePlugins
+            && modernCacheApiLevel == apiLevel
+            && modernCacheUiOpenedAt == uiOpenedAt)
+        {
+            return;
+        }
+
+        RebuildModernCache(repos);
+
+        modernCacheValid = true;
+        modernCacheRepos = repos;
+        modernCacheShowOutdated = config.ShowOutdatedPlugins;
+        modernCacheHideNonEnglish = config.HideNonEnglishPlugins;
+        modernCacheHideClosedSource = config.HideClosedSourcePlugins;
+        modernCacheApiLevel = apiLevel;
+        modernCacheUiOpenedAt = uiOpenedAt;
+    }
+
+    private void MaybeRefreshEnabledRepos(IReadOnlyList<RepoInfo> repos)
+    {
+        if (repos.Count == 0)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+        if ((now - lastEnabledRefresh).TotalMilliseconds < EnabledRefreshIntervalMs)
+        {
+            return;
+        }
+
+        enabledRepos.Clear();
+        foreach (var repo in repos)
+        {
+            if (repoManager.GetRepoEnabled(repo.Url) || repoManager.GetRepoEnabled(repo.RawUrl))
+            {
+                enabledRepos.Add(repo);
+            }
+        }
+
+        enabledReposInitialized = true;
+        enabledReposSource = repos;
+        lastEnabledRefresh = now;
+    }
+
+    private void RebuildModernCache(IReadOnlyList<RepoInfo> repos)
+    {
+        modernRepoCache.Clear();
+
+        foreach (var repo in repos)
+        {
+            var visiblePlugins = new List<ModernPluginEntry>(repo.Plugins.Count);
+            foreach (var plugin in repo.Plugins)
+            {
+                var valid = IsPluginCurrentOrUnknown(plugin);
+                if (!config.ShowOutdatedPlugins && !valid)
+                {
+                    continue;
+                }
+
+                if (!PluginPassesLanguageFilter(plugin))
+                {
+                    continue;
+                }
+
+                if (!PluginPassesClosedSourceFilter(plugin))
+                {
+                    continue;
+                }
+
+                visiblePlugins.Add(new ModernPluginEntry(plugin, valid));
+            }
+
+            var cache = new ModernRepoCache(repo, visiblePlugins, BuildRepoInfoText(repo));
+            modernRepoCache[repo] = cache;
+        }
+    }
+
+    private void UpdateRepoLayout(
+        ModernRepoCache cache,
+        float availWidth,
+        float scale,
+        float padding,
+        float sectionSpacing,
+        float headerSpacingExtra,
+        float chipsBottomPadding,
+        float rowSpacing,
+        Vector2 chipPadding,
+        bool enabled)
+    {
+        if (cache.LayoutScale == scale
+            && Math.Abs(cache.LayoutAvailWidth - availWidth) < 0.1f
+            && cache.LayoutEnabled == enabled)
+        {
+            return;
+        }
+
+        cache.LayoutScale = scale;
+        cache.LayoutAvailWidth = availWidth;
+        cache.LayoutEnabled = enabled;
+
+        var lineHeight = ImGui.GetTextLineHeightWithSpacing();
+        var singleChipHeight = ImGui.GetTextLineHeight() + (chipPadding.Y * 2);
+
+        var chipsHeight = 0f;
+        if (cache.Plugins.Count > 0)
+        {
+            var currentX = 0f;
+            var rows = 1;
+            var isFirst = true;
+
+            foreach (var entry in cache.Plugins)
+            {
+                var chipWidth = GetPluginTextWidth(entry.Plugin) + (chipPadding.X * 2);
+                if (!isFirst)
+                {
+                    currentX += rowSpacing;
+                }
+
+                if (currentX + chipWidth > availWidth)
+                {
+                    rows++;
+                    currentX = 0f;
+                }
+
+                currentX += chipWidth;
+                isFirst = false;
+            }
+
+            chipsHeight = (rows * singleChipHeight) + ((rows - 1) * rowSpacing);
+        }
+
+        cache.ChipsHeight = chipsHeight;
+        cache.CardHeight = (padding * 2)
+                           + (lineHeight * 2.2f)
+                           + (sectionSpacing * 2)
+                           + headerSpacingExtra
+                           + chipsBottomPadding
+                           + chipsHeight;
+    }
+
+    private float GetPluginTextWidth(PluginInfo plugin)
+    {
+        if (pluginTextWidthCache.TryGetValue(plugin, out var width))
+        {
+            return width;
+        }
+
+        width = ImGui.CalcTextSize(plugin.Name).X;
+        pluginTextWidthCache[plugin] = width;
+        return width;
+    }
+
+    private string BuildRepoInfoText(RepoInfo repoInfo)
+    {
+        var infoParts = new List<string>(4);
+        if (!string.IsNullOrEmpty(repoInfo.Owner))
+        {
+            infoParts.Add($"Owner: {repoInfo.Owner}");
+        }
+
+        infoParts.Add($"Plugins: {repoInfo.Plugins.Count}");
+
+        if (!repoInfo.IsDefaultBranch && !string.IsNullOrEmpty(repoInfo.BranchName))
+        {
+            infoParts.Add($"Branch: {repoInfo.BranchName}");
+        }
+
+        DateTimeOffset? lastUpdated = repoInfo.LastUpdated > 0
+            ? DateTimeOffset.FromUnixTimeSeconds(repoInfo.LastUpdated).ToLocalTime()
+            : null;
+        if (lastUpdated.HasValue)
+        {
+            var relative = GetRelativeTimeText(lastUpdated.Value, uiOpenedAt);
+            infoParts.Add($"Updated: {relative} ({lastUpdated.Value:MMM dd, yyyy HH:mm})");
+        }
+        else
+        {
+            infoParts.Add("Updated: Unknown");
+        }
+
+        return string.Join("  •  ", infoParts);
+    }
+
+    private readonly struct ModernPluginEntry
+    {
+        public ModernPluginEntry(PluginInfo plugin, bool isValid)
+        {
+            Plugin = plugin;
+            IsValid = isValid;
+        }
+
+        public PluginInfo Plugin { get; }
+        public bool IsValid { get; }
+    }
+
+    private sealed class ModernRepoCache
+    {
+        public ModernRepoCache(RepoInfo repo, List<ModernPluginEntry> plugins, string infoText)
+        {
+            Repo = repo;
+            Plugins = plugins;
+            InfoText = infoText;
+        }
+
+        public RepoInfo Repo { get; }
+        public List<ModernPluginEntry> Plugins { get; }
+        public string InfoText { get; set; }
+        public float LayoutScale { get; set; } = -1f;
+        public float LayoutAvailWidth { get; set; } = -1f;
+        public bool LayoutEnabled { get; set; }
+        public float CardHeight { get; set; }
+        public float ChipsHeight { get; set; }
+    }
+
+    private readonly struct ModernVisibleRepoEntry
+    {
+        public ModernVisibleRepoEntry(
+            RepoInfo repo,
+            ModernRepoCache cache,
+            bool enabled,
+            bool seen,
+            bool isPriority,
+            float accentOffset,
+            float cardHeight)
+        {
+            Repo = repo;
+            Cache = cache;
+            Enabled = enabled;
+            Seen = seen;
+            IsPriority = isPriority;
+            AccentOffset = accentOffset;
+            CardHeight = cardHeight;
+        }
+
+        public RepoInfo Repo { get; }
+        public ModernRepoCache Cache { get; }
+        public bool Enabled { get; }
+        public bool Seen { get; }
+        public bool IsPriority { get; }
+        public float AccentOffset { get; }
+        public float CardHeight { get; }
     }
 
     private static bool DrawCustomToggle(string id, ref bool v, float scale)
@@ -1361,14 +1733,7 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
 
     private static bool IsLatinOnly(PluginInfo plugin)
     {
-        var name = plugin.Name;
-        var description = plugin.Description;
-        return !ChineseRegex.IsMatch(name)
-               && !ChineseRegex.IsMatch(description)
-               && !JapaneseRegex.IsMatch(name)
-               && !JapaneseRegex.IsMatch(description)
-               && !KoreanRegex.IsMatch(name)
-               && !KoreanRegex.IsMatch(description);
+        return plugin.IsLatinOnly;
     }
 
     private static string GetSortLabel(int repoSort)
@@ -1382,6 +1747,27 @@ internal sealed class RepoBrowserWindow : Window, IDisposable
             _ => "Default"
         };
     }
+
+    private static int LowerBound(IReadOnlyList<float> values, float target)
+    {
+        var lo = 0;
+        var hi = values.Count;
+        while (lo < hi)
+        {
+            var mid = lo + ((hi - lo) / 2);
+            if (values[mid] < target)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        return lo;
+    }
+
 
     private void UpdateSearchResults(IReadOnlyList<RepoInfo> repos)
     {
