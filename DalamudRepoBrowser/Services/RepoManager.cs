@@ -18,9 +18,9 @@ internal sealed class RepoManager : IDisposable
 {
     private const long CacheTtlMilliseconds = 21600000; // 6 hours
 
-    public const string RepoMasterUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/plugins.json";
-    public const string PriorityReposUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/priority-repos.json";
-    private const string RepoMasterLastUpdatedUrl = "https://raw.githubusercontent.com/BeSlightly/Aetherfeed/refs/heads/main/public/data/last-updated.json";
+    public const string RepoMasterUrl = "https://raw.githubusercontent.com/Aetherfeed/aetherfeed.github.io/refs/heads/main/public/data/plugins.json";
+    public const string PriorityReposUrl = "https://raw.githubusercontent.com/Aetherfeed/aetherfeed.github.io/refs/heads/main/public/data/priority-repos.json";
+    private const string RepoMasterLastUpdatedUrl = "https://raw.githubusercontent.com/Aetherfeed/aetherfeed.github.io/refs/heads/main/public/data/last-updated.json";
 
     private readonly Configuration config;
     private readonly IDalamudPluginInterface pluginInterface;

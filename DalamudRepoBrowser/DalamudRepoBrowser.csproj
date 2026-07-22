@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Dalamud.NET.Sdk/15.0.0">
     <PropertyGroup>
         <Name>DalamudRepoBrowser</Name>
-        <Version>3.0.0.4</Version>
+        <Version>3.0.0.5</Version>
         <Author>UnknownX, iRobsie, BeSlightly</Author>
         <RepoUrl>https://github.com/BeSlightly/DalamudRepoBrowser</RepoUrl>
         <IconUrl>https://raw.githubusercontent.com/BeSlightly/DalamudRepoBrowser/master/images/logo.png</IconUrl>
